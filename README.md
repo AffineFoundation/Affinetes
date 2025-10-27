@@ -1,18 +1,17 @@
-# Rayfine-Env
+# Affine-Kubernetes-Env
 
 Container-based environment execution framework with secure HTTP communication and multi-instance deployment support.
 
 Define environments once, execute anywhere with Docker containers accessed via internal networking.
 
 ## Features
-
+- **Two Environment Types**: 
+  - Function-based (auto-injected HTTP server)
+  - HTTP-based (existing FastAPI servers)
 - **Simple Environment Definition**: Only requires `env.py` file
 - **Container Isolation**: All environments run in isolated Docker containers
 - **Secure Communication**: Internal network access (no exposed ports)
 - **SSH Remote Deployment**: Deploy to remote Docker daemons via SSH protocol
-- **Two Environment Types**: 
-  - Function-based (auto-injected HTTP server)
-  - HTTP-based (existing FastAPI servers)
 - **Dynamic Method Dispatch**: Automatic method exposure via `__getattr__`
 - **Multi-Instance Support**: Deploy multiple replicas with load balancing
 - **Container Reuse**: Reuse existing containers to avoid conflicts
