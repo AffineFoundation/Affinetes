@@ -34,6 +34,42 @@ class DockerManager:
         except Exception as e:
             raise ContainerError(f"Failed to connect to Docker daemon: {e}")
     
+    def pull_image(self, image: str, quiet: bool = False) -> None:
+        """
+        Pull Docker image from registry
+        
+        Args:
+            image: Image name with tag (e.g., "affine:latest")
+            quiet: Suppress pull output
+            
+        Raises:
+            ContainerError: If pull fails
+        """
+        try:
+            logger.info(f"Pulling image '{image}' from registry")
+            
+            # Parse image name and tag
+            if ":" in image:
+                repository, tag = image.rsplit(":", 1)
+            else:
+                repository = image
+                tag = "latest"
+            
+            # Pull image
+            for line in self.client.api.pull(repository, tag=tag, stream=True, decode=True):
+                if not quiet:
+                    if "status" in line:
+                        logger.debug(f"Pull {image}: {line['status']}")
+                    if "error" in line:
+                        raise ContainerError(f"Pull failed: {line['error']}")
+            
+            logger.info(f"Successfully pulled image '{image}'")
+            
+        except docker.errors.APIError as e:
+            raise ContainerError(f"Failed to pull image '{image}': {e}")
+        except Exception as e:
+            raise ContainerError(f"Error pulling image '{image}': {e}")
+    
     def get_existing_container(self, name: str) -> Optional[Any]:
         """
         Get existing container by name if it exists

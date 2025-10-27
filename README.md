@@ -160,6 +160,7 @@ rf_env.load_env(
     env_vars: Dict[str, str] = None,        # Environment variables
     env_type: str = None,                   # Override type detection
     force_recreate: bool = False,           # Force container recreation
+    pull: bool = False,                     # Pull image before deployment
     **kwargs                                # Additional backend options
 ) -> EnvironmentWrapper
 ```
@@ -440,6 +441,21 @@ env3 = rf_env.load_env(
     container_name="my-affine",
     force_recreate=True  # Removes and recreates container
 )
+```
+
+### Image Pull Before Deployment
+
+```python
+# Pull latest image from registry before deployment
+env = rf_env.load_env(
+    image="affine:latest",
+    pull=True  # Ensures using latest version
+)
+
+# Useful for:
+# - Remote deployments (ensure image exists on remote host)
+# - Production updates (pull latest tag)
+# - Shared registries (sync image versions)
 ```
 
 ## Environment Types

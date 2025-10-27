@@ -33,6 +33,7 @@ class LocalBackend(AbstractBackend):
         env_vars: Optional[Dict[str, str]] = None,
         env_type_override: Optional[str] = None,
         force_recreate: bool = False,
+        pull: bool = False,
         **docker_kwargs
     ):
         """
@@ -45,6 +46,7 @@ class LocalBackend(AbstractBackend):
             env_vars: Environment variables to pass to container
             env_type_override: Override environment type detection
             force_recreate: If True, remove existing container and create new one
+            pull: If True, pull image before starting container
             **docker_kwargs: Additional Docker container options
         """
         self.image = image
@@ -59,6 +61,7 @@ class LocalBackend(AbstractBackend):
         self._env_type = None
         self._env_type_override = env_type_override
         self._force_recreate = force_recreate
+        self._pull = pull
         
         # Start container with env vars
         self._start_container(env_vars=env_vars, **docker_kwargs)
@@ -83,6 +86,11 @@ class LocalBackend(AbstractBackend):
             
             # Initialize Docker manager with host support
             self._docker_manager = DockerManager(host=self.host)
+            
+            # Pull image if requested
+            if self._pull:
+                logger.info(f"Pulling image '{self.image}' from registry")
+                self._docker_manager.pull_image(self.image)
             
             # Merge environment variables
             if env_vars:
