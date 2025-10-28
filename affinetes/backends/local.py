@@ -52,7 +52,9 @@ class LocalBackend(AbstractBackend):
         self.image = image
         self.host = host
         timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-        self.name = container_name or f"{image.replace(':', '-')}-{timestamp}"
+        # Sanitize image name for container naming (remove / and :)
+        safe_image = image.split('/')[-1].replace(':', '-')
+        self.name = container_name or f"{safe_image}-{timestamp}"
         
         self._container = None
         self._docker_manager = None

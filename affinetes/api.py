@@ -311,8 +311,9 @@ async def _deploy_instance(
     
     # Docker deployment (supports SSH remote via host parameter)
     if mode == "docker":
-        # Generate unique container name
-        name_prefix = container_name or image.replace(":", "-")
+        # Generate unique container name (sanitize image name)
+        safe_image = image.split('/')[-1].replace(':', '-')
+        name_prefix = container_name or safe_image
         unique_name = f"{name_prefix}-{instance_id}"
         
         backend = LocalBackend(

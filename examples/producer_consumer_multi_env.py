@@ -53,34 +53,34 @@ AFFINE_TASKS = ["sat", "abd", "ded"]
 AGENTGYM_ENVS = ["webshop", "alfworld", "babyai", "sciworld", "textcraft"]
 
 ENV_CONFIGS = {
-    "bignickeye/affine": {"path": "environments/affine", "image": "affine:latest", "replicas": 5},
-    "bignickeye/agentgym:webshop": {
+    "affine": {"path": "environments/affine", "image": "bignickeye/affine:latest", "replicas": 5},
+    "agentgym:webshop": {
         "path": "environments/agentgym",
-        "image": "agentgym:webshop",
+        "image": "bignickeye/agentgym:webshop",
         "replicas": 2,
         "buildargs": {"ENV_NAME": "webshop"},
     },
-    "bignickeye/agentgym:alfworld": {
+    "agentgym:alfworld": {
         "path": "environments/agentgym",
-        "image": "agentgym:alfworld",
+        "image": "bignickeye/agentgym:alfworld",
         "replicas": 2,
         "buildargs": {"ENV_NAME": "alfworld"},
     },
-    "bignickeye/agentgym:babyai": {
+    "agentgym:babyai": {
         "path": "environments/agentgym",
-        "image": "agentgym:babyai",
+        "image": "bignickeye/agentgym:babyai",
         "replicas": 2,
         "buildargs": {"ENV_NAME": "babyai"},
     },
-    "bignickeye/agentgym:sciworld": {
+    "agentgym:sciworld": {
         "path": "environments/agentgym",
-        "image": "agentgym:sciworld",
+        "image": "bignickeye/agentgym:sciworld",
         "replicas": 2,
         "buildargs": {"ENV_NAME": "sciworld"},
     },
-    "bignickeye/agentgym:textcraft": {
+    "agentgym:textcraft": {
         "path": "environments/agentgym",
-        "image": "agentgym:textcraft",
+        "image": "bignickeye/agentgym:textcraft",
         "replicas": 2,
         "buildargs": {"ENV_NAME": "textcraft"},
     },
