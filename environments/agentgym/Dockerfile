@@ -12,23 +12,21 @@ RUN apt-get update && apt-get install -y \
     unzip \
     && rm -rf /var/lib/apt/lists/*
 
-ARG ENV_NAME
-ENV ENV_NAME=${ENV_NAME}
-
 WORKDIR /app
 
-RUN git clone --recurse-submodules https://github.com/WooooDyy/AgentGym.git AgentGym \
+RUN git clone --recurse-submodules https://github.com/angosr/AgentGym.git AgentGym \
     && cd AgentGym \
-    && git checkout d014732d9fe39b975c368c03749bfd50950067f6 \
     && git submodule update --init --recursive
 
 ENV PATH=/opt/miniconda/envs/agentenv/bin:/opt/miniconda/bin:$PATH
 
+ARG ENV_NAME
+ENV ENV_NAME=${ENV_NAME}
+
 COPY preprocess_env.sh /app/
 RUN chmod +x /app/preprocess_env.sh && /app/preprocess_env.sh
 
-COPY agentenv /app/agentenv
-RUN cd agentenv && pip install -e .
+RUN pip install /app/AgentGym/agentenv
 
 COPY postprocess_env.sh /app/
 RUN chmod +x /app/postprocess_env.sh && /app/postprocess_env.sh
@@ -38,7 +36,6 @@ ENV ALFWORLD_DATA=/root/.cache/alfworld
 ARG TOOL_NAME
 ENV TOOL_NAME=${TOOL_NAME}
 COPY env.py /app/
-COPY agentenv_webshop /app/AgentGym/agentenv-webshop/agentenv_webshop/
 
 WORKDIR /sandbox
 # IMPORTANT: Must use single worker mode (no --workers or --workers 1)

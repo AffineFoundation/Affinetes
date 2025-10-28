@@ -1,9 +1,0 @@
-[project]
-name = "agentenv"
-version = "0.2.0"
-description = ""
-authors = [
-    {name = "KYLN24", email = "hlguo24@m.fudan.edu.cn"},
-]
-requires-python = ">=3.8"
-license = {text = "MIT"}

@@ -53,32 +53,32 @@ AFFINE_TASKS = ["sat", "abd", "ded"]
 AGENTGYM_ENVS = ["webshop", "alfworld", "babyai", "sciworld", "textcraft"]
 
 ENV_CONFIGS = {
-    "affine": {"path": "environments/affine", "image": "affine:latest", "replicas": 5},
-    "agentgym:webshop": {
+    "bignickeye/affine": {"path": "environments/affine", "image": "affine:latest", "replicas": 5},
+    "bignickeye/agentgym:webshop": {
         "path": "environments/agentgym",
         "image": "agentgym:webshop",
         "replicas": 2,
         "buildargs": {"ENV_NAME": "webshop"},
     },
-    "agentgym:alfworld": {
+    "bignickeye/agentgym:alfworld": {
         "path": "environments/agentgym",
         "image": "agentgym:alfworld",
         "replicas": 2,
         "buildargs": {"ENV_NAME": "alfworld"},
     },
-    "agentgym:babyai": {
+    "bignickeye/agentgym:babyai": {
         "path": "environments/agentgym",
         "image": "agentgym:babyai",
         "replicas": 2,
         "buildargs": {"ENV_NAME": "babyai"},
     },
-    "agentgym:sciworld": {
+    "bignickeye/agentgym:sciworld": {
         "path": "environments/agentgym",
         "image": "agentgym:sciworld",
         "replicas": 2,
         "buildargs": {"ENV_NAME": "sciworld"},
     },
-    "agentgym:textcraft": {
+    "bignickeye/agentgym:textcraft": {
         "path": "environments/agentgym",
         "image": "agentgym:textcraft",
         "replicas": 2,
@@ -156,6 +156,7 @@ def load_environments() -> Dict[str, Any]:
                 replicas=config["replicas"],
                 load_balance="random",
                 env_vars=env_vars,
+                pull=True,
             )
 
             elapsed = time.time() - start
@@ -349,7 +350,7 @@ async def main():
     NUM_TASKS = 20
 
     # Step 1: Build images
-    build_images()
+    # build_images()
 
     # Step 2: Load environments
     env_pool = load_environments()
