@@ -1,4 +1,4 @@
-"""Centralized logging for rayfine_env"""
+"""Centralized logging for affinetes"""
 
 import logging
 from typing import Optional
@@ -10,7 +10,7 @@ class Logger:
     _instance: Optional['Logger'] = None
     
     def __init__(self, level: str = "INFO"):
-        self.logger = logging.getLogger("rayfine_env")
+        self.logger = logging.getLogger("affinetes")
         self.logger.setLevel(getattr(logging, level.upper()))
         
         # Avoid adding multiple handlers

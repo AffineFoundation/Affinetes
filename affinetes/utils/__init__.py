@@ -1,4 +1,4 @@
-"""Utilities for rayfine_env"""
+"""Utilities for affinetes"""
 
 from .exceptions import (
     RayfineEnvError,

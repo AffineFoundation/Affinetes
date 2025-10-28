@@ -1,10 +1,10 @@
-"""Setup script for rayfine-env"""
+"""Setup script for affinetes"""
 
 from setuptools import setup, find_packages
 from pathlib import Path
 
 # Read version
-version_file = Path(__file__).parent / "rayfine_env" / "__version__.py"
+version_file = Path(__file__).parent / "affinetes" / "__version__.py"
 version = {}
 exec(version_file.read_text(), version)
 
@@ -13,7 +13,7 @@ readme_file = Path(__file__).parent / "README.md"
 long_description = readme_file.read_text() if readme_file.exists() else ""
 
 setup(
-    name="rayfine-env",
+    name="affinetes",
     version=version["__version__"],
     description="Container-based environment execution framework with HTTP",
     long_description=long_description,
@@ -39,7 +39,7 @@ setup(
     },
     entry_points={
         "console_scripts": [
-            "rayfine-env=rayfine_env.cli:main",
+            "affinetes=affinetes.cli:main",
         ],
     },
     classifiers=[

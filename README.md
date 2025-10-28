@@ -65,10 +65,10 @@ COPY . /app/
 ### 2. Build Image
 
 ```python
-import rayfine_env as rf_env
+import affinetes as af_env
 
 # Build Docker image from environment directory
-image_id = rf_env.build_image_from_env(
+image_id = af_env.build_image_from_env(
     env_path="environments/affine",
     image_tag="affine:latest"
 )
@@ -78,10 +78,10 @@ image_id = rf_env.build_image_from_env(
 ### 3. Load and Execute
 
 ```python
-import rayfine_env as rf_env
+import affinetes as af_env
 
 # Load environment (starts container with env vars)
-env = rf_env.load_env(
+env = af_env.load_env(
     image="affine:latest",
     mode="docker",
     env_vars={"CHUTES_API_KEY": "your-api-key"}
@@ -97,7 +97,7 @@ await env.cleanup()
 ### 4. Async Context Manager (Auto-cleanup)
 
 ```python
-async with rf_env.load_env(
+async with af_env.load_env(
     image="affine:latest",
     env_vars={"CHUTES_API_KEY": "xxx"}
 ) as env:
@@ -127,7 +127,7 @@ pip install -e .[dev]
 Build Docker image from environment directory.
 
 ```python
-rf_env.build_image_from_env(
+af_env.build_image_from_env(
     env_path: str,                          # Path to environment directory
     image_tag: str,                         # Image tag (e.g., "affine:latest")
     nocache: bool = False,                  # Don't use build cache
@@ -150,7 +150,7 @@ rf_env.build_image_from_env(
 Load environment from pre-built Docker image.
 
 ```python
-rf_env.load_env(
+af_env.load_env(
     image: str,                             # Docker image name
     mode: str = "docker",                   # "docker" or "rayfine"
     replicas: int = 1,                      # Number of instances
@@ -171,21 +171,21 @@ rf_env.load_env(
 
 ```python
 # Deploy 3 local instances with load balancing
-env = rf_env.load_env(
+env = af_env.load_env(
     image="affine:latest",
     replicas=3,
     load_balance="random"
 )
 
 # Deploy to remote Docker daemons via SSH
-env = rf_env.load_env(
+env = af_env.load_env(
     image="affine:latest",
     replicas=2,
     hosts=["ssh://user@host1", "ssh://user@host2"]
 )
 
 # Mixed deployment (1 local + 2 remote)
-env = rf_env.load_env(
+env = af_env.load_env(
     image="affine:latest",
     replicas=3,
     hosts=["localhost", "ssh://user@host1", "ssh://user@host2"]
@@ -215,9 +215,9 @@ result = await env.evaluate(
 ### Utility Functions
 
 ```python
-rf_env.list_active_environments()      # List all active environment IDs
-rf_env.cleanup_all_environments()      # Cleanup all environments (auto on exit)
-rf_env.get_environment(env_id)         # Get environment by ID
+af_env.list_active_environments()      # List all active environment IDs
+af_env.cleanup_all_environments()      # Cleanup all environments (auto on exit)
+af_env.get_environment(env_id)         # Get environment by ID
 ```
 
 ## Architecture
@@ -228,15 +228,15 @@ rf_env.get_environment(env_id)         # Get environment by ID
 ┌─────────────────────────────────────────────────────────────┐
 │                      User Application                        │
 │  ┌────────────────────────────────────────────────────────┐ │
-│  │  import rayfine_env as rf_env                          │ │
-│  │  env = rf_env.load_env("affine:latest", replicas=3)    │ │
+│  │  import affinetes as af_env                          │ │
+│  │  env = af_env.load_env("affine:latest", replicas=3)    │ │
 │  │  result = await env.evaluate(...)                      │ │
 │  └────────────────────────────────────────────────────────┘ │
 └─────────────────────────────────────────────────────────────┘
                             │
                             ▼
 ┌─────────────────────────────────────────────────────────────┐
-│                    Rayfine-Env Framework                     │
+│                    Affinetes Framework                     │
 │  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐      │
 │  │  API Layer   │  │ Core Layer   │  │  Backend     │      │
 │  │  - build_*   │→ │ - Wrapper    │→ │  - Local     │      │
@@ -282,18 +282,18 @@ rf_env.get_environment(env_id)         # Get environment by ID
 ### Basic Single Instance
 
 ```python
-import rayfine_env as rf_env
+import affinetes as af_env
 import asyncio
 
 async def main():
     # Build image
-    image = rf_env.build_image_from_env(
+    image = af_env.build_image_from_env(
         env_path="environments/affine",
         image_tag="affine:latest"
     )
     
     # Load environment
-    env = rf_env.load_env(
+    env = af_env.load_env(
         image=image,
         env_vars={"CHUTES_API_KEY": "your-key"}
     )
@@ -311,12 +311,12 @@ asyncio.run(main())
 ### Multi-Instance with Load Balancing
 
 ```python
-import rayfine_env as rf_env
+import affinetes as af_env
 import asyncio
 
 async def main():
     # Deploy 3 local instances
-    env = rf_env.load_env(
+    env = af_env.load_env(
         image="affine:latest",
         replicas=3,
         load_balance="round_robin",
@@ -348,12 +348,12 @@ asyncio.run(main())
 ### SSH Remote Deployment
 
 ```python
-import rayfine_env as rf_env
+import affinetes as af_env
 import asyncio
 
 async def main():
     # Deploy to remote Docker daemons via SSH
-    env = rf_env.load_env(
+    env = af_env.load_env(
         image="affine:latest",
         replicas=2,
         hosts=[
@@ -387,18 +387,18 @@ ssh user@remote-host docker ps
 ### Concurrent Multi-Environment Execution
 
 ```python
-import rayfine_env as rf_env
+import affinetes as af_env
 import asyncio
 
 async def main():
     # Deploy multiple environments
-    env1 = rf_env.load_env(
+    env1 = af_env.load_env(
         image="affine:latest",
         replicas=3,
         env_vars={"API_KEY": "key1"}
     )
     
-    env2 = rf_env.load_env(
+    env2 = af_env.load_env(
         image="agentgym:webshop",
         replicas=2,
         env_vars={"API_KEY": "key2"}
@@ -423,20 +423,20 @@ asyncio.run(main())
 
 ```python
 # First run: creates container
-env1 = rf_env.load_env(
+env1 = af_env.load_env(
     image="affine:latest",
     container_name="my-affine"
 )
 await env1.cleanup()
 
 # Second run: reuses existing container (if still exists)
-env2 = rf_env.load_env(
+env2 = af_env.load_env(
     image="affine:latest",
     container_name="my-affine"
 )
 
 # Force recreation
-env3 = rf_env.load_env(
+env3 = af_env.load_env(
     image="affine:latest",
     container_name="my-affine",
     force_recreate=True  # Removes and recreates container
@@ -447,7 +447,7 @@ env3 = rf_env.load_env(
 
 ```python
 # Pull latest image from registry before deployment
-env = rf_env.load_env(
+env = af_env.load_env(
     image="affine:latest",
     pull=True  # Ensures using latest version
 )
@@ -535,14 +535,14 @@ result = await env.evaluate(
 
 ```python
 # Random selection (default, better for uneven workloads)
-env = rf_env.load_env(
+env = af_env.load_env(
     image="affine:latest",
     replicas=3,
     load_balance="random"
 )
 
 # Round-robin (even distribution)
-env = rf_env.load_env(
+env = af_env.load_env(
     image="affine:latest",
     replicas=3,
     load_balance="round_robin"
@@ -611,7 +611,7 @@ for inst in stats['instances']:
 
 ```python
 # Manually override if detection fails
-env = rf_env.load_env(
+env = af_env.load_env(
     image="my:image",
     env_type="http_based"  # or "function_based"
 )

@@ -1,12 +1,12 @@
 """
-Rayfine-Env: Container-based Environment Execution Framework
+Affinetes: Container-based Environment Execution Framework
 
 A framework for defining, building, and executing isolated environments
 in Docker containers with Ray-based remote execution.
 
 Basic Usage:
     # Build environment image
-    >>> from rayfine_env import build_image_from_env, load_env
+    >>> from affinetes import build_image_from_env, load_env
     >>> build_image_from_env("environments/affine", "affine:latest")
     
     # Load and use environment

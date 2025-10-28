@@ -1,12 +1,12 @@
 import asyncio
 import os
 import sys
-import rayfine_env as rf_env
+import affinetes as af_env
 from dotenv import load_dotenv
 load_dotenv(override=True)
 
 async def main():
-    rf_env.build_image_from_env(
+    af_env.build_image_from_env(
         env_path="environments/agentgym",
         image_tag="agentgym:webshop",
         buildargs={
@@ -21,7 +21,7 @@ async def main():
         print("   Or create .env file with: CHUTES_API_KEY=your-key")
         sys.exit(1)
 
-    env = rf_env.load_env(
+    env = af_env.load_env(
         image="agentgym:webshop",
         mode="docker",
         env_type="http_based",

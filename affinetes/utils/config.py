@@ -14,11 +14,11 @@ class Config:
     
     # Container configuration
     CONTAINER_STARTUP_TIMEOUT: int = 30  # seconds
-    CONTAINER_NAME_PREFIX: str = "rayfine-env"
+    CONTAINER_NAME_PREFIX: str = "affinetes"
     
     # Image configuration
     IMAGE_BUILD_TIMEOUT: int = 600  # seconds
-    DEFAULT_IMAGE_PREFIX: str = "rayfine-env"
+    DEFAULT_IMAGE_PREFIX: str = "affinetes"
     DEFAULT_REGISTRY: str | None = None
     
     # Logging

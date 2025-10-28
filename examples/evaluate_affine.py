@@ -1,4 +1,4 @@
-import rayfine_env as rf_env
+import affinetes as af_env
 import os
 import sys
 import asyncio
@@ -9,10 +9,10 @@ load_dotenv(override=True)
 
 async def main():
     print("\n" + "=" * 60)
-    print("Rayfine-Env: Async Environment Execution Example")
+    print("Affinetes: Async Environment Execution Example")
     print("=" * 60)
 
-    image = rf_env.build_image_from_env(
+    image = af_env.build_image_from_env(
         env_path="environments/affine",
         image_tag="affine:latest",
         nocache=False,
@@ -28,7 +28,7 @@ async def main():
 
     print("\n1. Loading environment from pre-built image 'affine:latest'...")
     
-    env = rf_env.load_env(
+    env = af_env.load_env(
         image=image,
         mode="docker",
         env_vars={"CHUTES_API_KEY": api_key}

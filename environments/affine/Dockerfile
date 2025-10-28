@@ -14,4 +14,4 @@ COPY . /app/
 # Install Python dependencies if requirements.txt exists
 RUN if [ -f requirements.txt ]; then pip install --no-cache-dir -r requirements.txt; fi
 
-# HTTP server will be injected by rayfine-env framework
+# HTTP server will be injected by affinetes framework

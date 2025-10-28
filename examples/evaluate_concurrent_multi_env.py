@@ -3,7 +3,7 @@ Multi-Environment Concurrent Test
 Tests multiple environments with different instance counts running tasks concurrently
 """
 
-import rayfine_env as rf_env
+import affinetes as af_env
 import asyncio
 import time
 import os
@@ -31,7 +31,7 @@ async def main():
     print("\n1. Building Docker images...")
     build_start = time.time()
     
-    affine_image = rf_env.build_image_from_env(
+    affine_image = af_env.build_image_from_env(
         env_path="environments/affine",
         image_tag="affine:latest",
         nocache=False,
@@ -39,7 +39,7 @@ async def main():
     )
     print(f"   ✓ Affine image built")
     
-    agentgym_image = rf_env.build_image_from_env(
+    agentgym_image = af_env.build_image_from_env(
         env_path="environments/agentgym",
         image_tag="agentgym:webshop",
         nocache=False,
@@ -56,7 +56,7 @@ async def main():
     deploy_start = time.time()
     
     print("   Deploying affine with 3 instances...")
-    env_affine = rf_env.load_env(
+    env_affine = af_env.load_env(
         image=affine_image,
         mode="docker",
         replicas=3,
@@ -66,7 +66,7 @@ async def main():
     print(f"   ✓ Affine: {env_affine}")
     
     print("   Deploying agentgym:webshop with 2 instances...")
-    env_agentgym = rf_env.load_env(
+    env_agentgym = af_env.load_env(
         image=agentgym_image,
         mode="docker",
         replicas=2,

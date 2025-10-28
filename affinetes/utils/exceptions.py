@@ -1,8 +1,8 @@
-"""Custom exceptions for rayfine_env"""
+"""Custom exceptions for affinetes"""
 
 
 class RayfineEnvError(Exception):
-    """Base exception for all rayfine_env errors"""
+    """Base exception for all affinetes errors"""
     pass
 
 
