@@ -1,8 +1,8 @@
-# Affine-Kubernetes-Env
+# Affinetes
 
-Container-based environment execution framework with secure HTTP communication and multi-instance deployment support.
+Lightweight container orchestration framework for Python environments.
 
-Define environments once, execute anywhere with Docker containers accessed via internal networking.
+Define environments once, deploy anywhere with Docker containers and secure HTTP communication.
 
 ## Features
 - **Two Environment Types**: 
@@ -593,7 +593,7 @@ for inst in stats['instances']:
 - **Clean separation**: Base image (dependencies) + Server layer (framework)
 - **Zero burden**: Environment developers don't write HTTP code
 - **Maintainability**: HTTP server updates don't require image rebuilds
-- **Elegance**: `FROM affine:latest-base` vs concatenating Dockerfiles
+- **Flexibility**: Framework can inject different server implementations
 
 ## Troubleshooting
 
