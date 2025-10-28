@@ -8,9 +8,9 @@ load_dotenv(override=True)
 async def main():
     af_env.build_image_from_env(
         env_path="environments/agentgym",
-        image_tag="agentgym:webshop",
+        image_tag="agentgym:babyai",
         buildargs={
-            "ENV_NAME": "webshop"
+            "ENV_NAME": "babyai"
         }
     )
 
@@ -22,9 +22,8 @@ async def main():
         sys.exit(1)
 
     env = af_env.load_env(
-        image="agentgym:webshop",
+        image="agentgym:babyai",
         mode="docker",
-        env_type="http_based",
         env_vars={"CHUTES_API_KEY": api_key}
     )
 
