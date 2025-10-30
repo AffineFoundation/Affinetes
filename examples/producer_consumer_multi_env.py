@@ -12,6 +12,7 @@ Demonstrates:
 import asyncio
 import random
 import time
+import json
 from typing import Dict, Any, Optional
 from dataclasses import dataclass
 from queue import Queue
@@ -23,6 +24,7 @@ import sys
 from dotenv import load_dotenv
 
 load_dotenv(override=True)
+
 
 # Task definitions
 @dataclass
@@ -52,39 +54,83 @@ class TaskResult:
 AFFINE_TASKS = ["sat", "abd", "ded"]
 AGENTGYM_ENVS = ["webshop", "alfworld", "babyai", "sciworld", "textcraft"]
 
-ENV_CONFIGS = {
-    "affine": {"path": "environments/affine", "image": "bignickeye/affine:latest", "replicas": 5},
-    "agentgym:webshop": {
-        "path": "environments/agentgym",
-        "image": "bignickeye/agentgym:webshop",
-        "replicas": 2,
-        "buildargs": {"ENV_NAME": "webshop"},
-    },
-    "agentgym:alfworld": {
-        "path": "environments/agentgym",
-        "image": "bignickeye/agentgym:alfworld",
-        "replicas": 2,
-        "buildargs": {"ENV_NAME": "alfworld"},
-    },
-    "agentgym:babyai": {
-        "path": "environments/agentgym",
-        "image": "bignickeye/agentgym:babyai",
-        "replicas": 2,
-        "buildargs": {"ENV_NAME": "babyai"},
-    },
-    "agentgym:sciworld": {
-        "path": "environments/agentgym",
-        "image": "bignickeye/agentgym:sciworld",
-        "replicas": 2,
-        "buildargs": {"ENV_NAME": "sciworld"},
-    },
-    "agentgym:textcraft": {
-        "path": "environments/agentgym",
-        "image": "bignickeye/agentgym:textcraft",
-        "replicas": 2,
-        "buildargs": {"ENV_NAME": "textcraft"},
-    },
-}
+
+def generate_hosts(replicas_per_host: int) -> tuple[int, list]:
+    """
+    Generate hosts list based on environment variable AFFINETES_HOSTS
+
+    Args:
+        replicas_per_host: Number of replicas per host
+
+    Returns:
+        tuple: (total_replicas, hosts_list)
+
+    Environment Variable:
+        AFFINETES_HOSTS: Comma-separated list of hosts
+            - Empty or not set: Use local only
+            - Format: "host1,host2,host3"
+            - Example: "ssh://root@192.168.1.100,ssh://root@192.168.1.101"
+            - "localhost" or None will be treated as local deployment
+    """
+    hosts_env = os.getenv("AFFINETES_HOSTS", "").strip()
+
+    if not hosts_env:
+        # No hosts specified, use local only
+        return replicas_per_host, [None] * replicas_per_host
+
+    # Parse hosts from environment variable
+    hosts = [h.strip() for h in hosts_env.split(",") if h.strip()]
+
+    # If no valid hosts after parsing, fall back to local
+    if not hosts:
+        return replicas_per_host, [None] * replicas_per_host
+
+    # Generate host list by repeating each host replicas_per_host times
+    expanded_hosts = []
+    for host in hosts:
+        expanded_hosts.extend([host] * replicas_per_host)
+
+    total_replicas = len(expanded_hosts)
+
+    return total_replicas, expanded_hosts
+
+
+# Generate configurations dynamically
+def create_env_configs():
+    """Create environment configurations with dynamic host allocation"""
+
+    # Define replicas per host for each environment
+    affine_replicas_per_host = 2
+    agentgym_replicas_per_host = 1
+
+    # Generate hosts
+    affine_total, affine_hosts = generate_hosts(affine_replicas_per_host)
+    agentgym_total, agentgym_hosts = generate_hosts(agentgym_replicas_per_host)
+
+    configs = {
+        "affine": {
+            "path": "environments/affine",
+            "image": "bignickeye/affine:latest",
+            "replicas": affine_total,
+            "hosts": affine_hosts,
+        }
+    }
+
+    # Add AgentGym environments
+    for env_name in AGENTGYM_ENVS:
+        configs[f"agentgym:{env_name}"] = {
+            "path": "environments/agentgym",
+            "image": f"bignickeye/agentgym:{env_name}",
+            "replicas": agentgym_total,
+            "hosts": agentgym_hosts.copy(),  # Use copy to avoid reference issues
+            "buildargs": {"ENV_NAME": env_name},
+        }
+
+    return configs
+
+
+# Create configurations
+ENV_CONFIGS = create_env_configs()
 
 
 def build_images():
@@ -154,6 +200,7 @@ def load_environments() -> Dict[str, Any]:
                 image=config["image"],
                 mode="docker",
                 replicas=config["replicas"],
+                hosts=config["hosts"],
                 load_balance="random",
                 env_vars=env_vars,
                 pull=True,
@@ -310,11 +357,38 @@ def print_result(result: TaskResult):
     print(f"{'='*60}")
 
 
-async def consumer_worker(task_queue: Queue, env_pool: Dict[str, Any]):
-    """Consumer: Execute tasks from queue"""
-    print(f"\n[CONSUMER] Starting task execution...")
+async def consumer_worker(
+    task_queue: Queue, env_pool: Dict[str, Any], max_concurrency: int = 5
+):
+    """Consumer: Execute tasks from queue with controlled concurrency
 
+    Args:
+        task_queue: Queue containing tasks to execute
+        env_pool: Pool of environment instances
+        max_concurrency: Maximum number of concurrent task executions (default: 5)
+    """
+    print(
+        f"\n[CONSUMER] Starting task execution (max concurrency: {max_concurrency})..."
+    )
+
+    # Semaphore to control concurrency
+    semaphore = asyncio.Semaphore(max_concurrency)
+
+    # Track running tasks
+    running_tasks = []
     completed = 0
+
+    async def execute_with_semaphore(task: Task):
+        """Execute task with semaphore control"""
+        nonlocal completed
+        async with semaphore:
+            print(
+                f"[CONSUMER] Executing task #{task.task_id}: {task.env_type}/{task.task_name}"
+            )
+            result = await execute_task(task, env_pool)
+            print_result(result)
+            completed += 1
+            task_queue.task_done()
 
     while True:
         # Get task from queue
@@ -322,20 +396,18 @@ async def consumer_worker(task_queue: Queue, env_pool: Dict[str, Any]):
 
         # Check for completion signal
         if task is None:
-            print(f"\n[CONSUMER] Received completion signal")
+            print(
+                f"\n[CONSUMER] Received completion signal, waiting for {len(running_tasks)} running tasks..."
+            )
             break
 
-        # Execute task
-        print(
-            f"[CONSUMER] Executing task #{task.task_id}: {task.env_type}/{task.task_name}"
-        )
-        result = await execute_task(task, env_pool)
+        # Create task and add to running list
+        task_coro = asyncio.create_task(execute_with_semaphore(task))
+        running_tasks.append(task_coro)
 
-        # Print result
-        print_result(result)
-
-        completed += 1
-        task_queue.task_done()
+    # Wait for all running tasks to complete
+    if running_tasks:
+        await asyncio.gather(*running_tasks, return_exceptions=True)
 
     print(f"[CONSUMER] Finished executing {completed} tasks")
 
@@ -347,7 +419,8 @@ async def main():
     print("=" * 60)
 
     # Configuration
-    NUM_TASKS = 20
+    NUM_TASKS = 50
+    MAX_CONCURRENCY = 10  # Number of concurrent task executions
 
     # Step 1: Build images
     # build_images()
@@ -366,7 +439,7 @@ async def main():
 
     # Step 5: Start consumer (async)
     try:
-        await consumer_worker(task_queue, env_pool)
+        await consumer_worker(task_queue, env_pool, max_concurrency=MAX_CONCURRENCY)
 
     finally:
         # Step 6: Cleanup environments
@@ -375,6 +448,11 @@ async def main():
         print("=" * 60)
 
         for env_name, env in env_pool.items():
+            stats = env.get_stats()
+            if stats:
+                print(f"\n[STATS] {env_name}:")
+                print(json.dumps(stats, indent=2))
+
             print(f"[CLEANUP] Stopping '{env_name}'...")
             try:
                 await env.cleanup()

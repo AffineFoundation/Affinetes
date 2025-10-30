@@ -83,6 +83,9 @@ class LocalBackend(AbstractBackend):
         try:
             logger.debug(f"Starting container for image '{self.image}' on host '{self.host or 'localhost'}'")
             
+            # Initialize Docker manager with host support (must be done before env_type detection)
+            self._docker_manager = DockerManager(host=self.host)
+            
             # Get environment type
             if self._env_type_override:
                 self._env_type = self._env_type_override
@@ -90,9 +93,6 @@ class LocalBackend(AbstractBackend):
             else:
                 self._env_type = self._get_env_type()
                 logger.info(f"Environment type (detected): {self._env_type}")
-            
-            # Initialize Docker manager with host support
-            self._docker_manager = DockerManager(host=self.host)
             
             # Pull image if requested
             if self._pull:
