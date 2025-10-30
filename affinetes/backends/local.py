@@ -96,7 +96,6 @@ class LocalBackend(AbstractBackend):
             
             # Pull image if requested
             if self._pull:
-                logger.info(f"Pulling image '{self.image}' from registry")
                 self._docker_manager.pull_image(self.image)
             
             # Merge environment variables

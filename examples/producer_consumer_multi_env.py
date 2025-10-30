@@ -133,45 +133,6 @@ def create_env_configs():
 ENV_CONFIGS = create_env_configs()
 
 
-def build_images():
-    """Build all required Docker images"""
-    print("\n" + "=" * 60)
-    print("Building Docker Images")
-    print("=" * 60)
-
-    built_images = set()
-
-    for env_key, config in ENV_CONFIGS.items():
-        image = config["image"]
-
-        # Skip if already built
-        if image in built_images:
-            print(f"[SKIP] Image '{image}' already built")
-            continue
-
-        print(f"\n[BUILD] Building '{image}'...")
-        start = time.time()
-
-        try:
-            af_env.build_image_from_env(
-                env_path=config["path"],
-                image_tag=image,
-                buildargs=config.get("buildargs"),
-                quiet=False,
-            )
-            elapsed = time.time() - start
-            print(f"[OK] Built '{image}' in {elapsed:.1f}s")
-            built_images.add(image)
-
-        except Exception as e:
-            print(f"[ERROR] Failed to build '{image}': {e}")
-            raise
-
-    print("\n" + "=" * 60)
-    print(f"Successfully built {len(built_images)} images")
-    print("=" * 60)
-
-
 def load_environments() -> Dict[str, Any]:
     """Load all environment instances into a pool"""
     print("\n" + "=" * 60)
@@ -245,14 +206,14 @@ def generate_task(task_id: int) -> Task:
         params = {
             "task_type": task_name,
             "num_samples": 1,
-            "model": "deepseek-ai/DeepSeek-V3",
+            "model": "deepseek-ai/DeepSeek-V3.1",
             "base_url": "https://llm.chutes.ai/v1",
             "timeout": 120,
         }
     else:
         env_type = task_name
         params = {
-            "model": "deepseek-ai/DeepSeek-V3",
+            "model": "deepseek-ai/DeepSeek-V3.1",
             "base_url": "https://llm.chutes.ai/v1",
             "temperature": 0.7,
             "ids": [random.randint(0, 100)],
@@ -422,22 +383,19 @@ async def main():
     NUM_TASKS = 50
     MAX_CONCURRENCY = 10  # Number of concurrent task executions
 
-    # Step 1: Build images
-    # build_images()
-
-    # Step 2: Load environments
+    # Step 1: Load environments
     env_pool = load_environments()
 
-    # Step 3: Create task queue
+    # Step 2: Create task queue
     task_queue = Queue()
 
-    # Step 4: Start producer thread
+    # Step 3: Start producer thread
     producer_thread = Thread(
         target=producer_worker, args=(task_queue, NUM_TASKS), daemon=True
     )
     producer_thread.start()
 
-    # Step 5: Start consumer (async)
+    # Step 4: Start consumer (async)
     try:
         await consumer_worker(task_queue, env_pool, max_concurrency=MAX_CONCURRENCY)
 
