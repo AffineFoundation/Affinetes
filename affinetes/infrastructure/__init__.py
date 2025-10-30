@@ -4,6 +4,7 @@ from .docker_manager import DockerManager
 from .http_executor import HTTPExecutor
 from .image_builder import ImageBuilder
 from .env_detector import EnvDetector, EnvType, EnvConfig
+from .ssh_tunnel import SSHTunnelManager
 
 __all__ = [
     "DockerManager",
@@ -12,4 +13,5 @@ __all__ = [
     "EnvDetector",
     "EnvType",
     "EnvConfig",
+    "SSHTunnelManager",
 ]

@@ -10,6 +10,7 @@ nest_asyncio.apply()
 
 from .base import AbstractBackend
 from ..infrastructure import DockerManager, HTTPExecutor, EnvType
+from ..infrastructure.ssh_tunnel import SSHTunnelManager
 from ..utils.exceptions import BackendError, SetupError
 from ..utils.logger import logger
 from ..utils.config import Config
@@ -65,6 +66,10 @@ class LocalBackend(AbstractBackend):
         self._force_recreate = force_recreate
         self._pull = pull
         
+        # SSH tunnel for remote access
+        self._is_remote = host and host.startswith("ssh://")
+        self._ssh_tunnel_manager = None
+        
         # Start container with env vars
         self._start_container(env_vars=env_vars, **docker_kwargs)
     
@@ -118,17 +123,34 @@ class LocalBackend(AbstractBackend):
             container_ip = self._docker_manager.get_container_ip(self._container)
             logger.info(f"Container started with internal IP: {container_ip}")
             
-            # Create HTTP executor with internal IP
+            # Determine access method: direct or via SSH tunnel
+            if self._is_remote:
+                # Remote deployment: create SSH tunnel
+                logger.debug("Remote deployment detected, creating SSH tunnel")
+                self._ssh_tunnel_manager = SSHTunnelManager(self.host)
+                local_host, local_port = self._ssh_tunnel_manager.create_tunnel(
+                    remote_ip=container_ip,
+                    remote_port=8000
+                )
+                logger.info(f"Accessing via SSH tunnel: {local_host}:{local_port}")
+            else:
+                # Local deployment: direct access
+                local_host = container_ip
+                local_port = 8000
+                logger.debug(f"Local deployment, direct access: {local_host}:{local_port}")
+            
+            # Create HTTP executor with accessible address
             self._http_executor = HTTPExecutor(
-                container_ip=container_ip,
-                container_port=8000,
+                container_ip=local_host,
+                container_port=local_port,
                 env_type=self._env_type,
                 timeout=600
             )
             
             # Wait for HTTP server to be ready
             timeout = 120 if self._env_type == EnvType.HTTP_BASED else 60
-            logger.debug(f"Waiting for HTTP server at {container_ip}:8000 (timeout={timeout}s)")
+            access_info = f"{local_host}:{local_port}"
+            logger.debug(f"Waiting for HTTP server at {access_info} (timeout={timeout}s)")
             
             # Run async health check in sync context
             try:
@@ -149,6 +171,11 @@ class LocalBackend(AbstractBackend):
             
         except Exception as e:
             # Cleanup on failure
+            if self._ssh_tunnel_manager:
+                try:
+                    self._ssh_tunnel_manager.cleanup()
+                except:
+                    pass
             if self._container:
                 try:
                     self._docker_manager.stop_container(self._container)
@@ -159,9 +186,7 @@ class LocalBackend(AbstractBackend):
     def _get_env_type(self) -> str:
         """Get environment type from image labels"""
         try:
-            from ..infrastructure import DockerManager
-            docker_mgr = DockerManager()
-            img = docker_mgr.client.images.get(self.image)
+            img = self._docker_manager.client.images.get(self.image)
             labels = img.labels or {}
             env_type = labels.get("rayfine.env.type", EnvType.FUNCTION_BASED)
             logger.debug(f"Detected env_type from image labels: {env_type}")
@@ -232,6 +257,15 @@ class LocalBackend(AbstractBackend):
                 logger.warning(f"Error closing HTTP client: {e}")
             finally:
                 self._http_executor = None
+        
+        # Close SSH tunnel if exists
+        if self._ssh_tunnel_manager:
+            try:
+                self._ssh_tunnel_manager.cleanup()
+            except Exception as e:
+                logger.warning(f"Error closing SSH tunnel: {e}")
+            finally:
+                self._ssh_tunnel_manager = None
         
         # Stop container
         if self._container and self._docker_manager:
