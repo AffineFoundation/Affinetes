@@ -17,10 +17,12 @@ def build_image_from_env(
     image_tag: str,
     nocache: bool = False,
     quiet: bool = False,
-    buildargs: Optional[Dict[str, str]] = None
+    buildargs: Optional[Dict[str, str]] = None,
+    push: bool = False,
+    registry: Optional[str] = None
 ) -> str:
     """
-    Build Docker image from environment definition
+    Build Docker image from environment definition and optionally push to registry
     
     Args:
         env_path: Path to environment directory (must contain env.py and Dockerfile)
@@ -28,13 +30,25 @@ def build_image_from_env(
         nocache: Don't use build cache
         quiet: Suppress build output
         buildargs: Docker build arguments (e.g., {"ENV_NAME": "webshop"})
+        push: Push image to registry after build (default: False)
+        registry: Registry URL (e.g., "docker.io/myuser"). If not specified, uses image_tag as-is
         
     Returns:
-        Built image ID
+        Built image tag (with registry prefix if specified)
         
-    Example:
+    Examples:
+        >>> # Build only
         >>> build_image_from_env("environments/affine", "affine:latest")
-        'sha256:abc123...'
+        'affine:latest'
+        
+        >>> # Build and push to Docker Hub
+        >>> build_image_from_env("environments/affine", "affine:latest",
+        ...                      push=True, registry="docker.io/myuser")
+        'docker.io/myuser/affine:latest'
+        
+        >>> # Build and push (image_tag already contains registry)
+        >>> build_image_from_env("environments/affine", "myregistry.com/affine:latest", push=True)
+        'myregistry.com/affine:latest'
     """
     try:
         logger.info(f"Building image '{image_tag}' from '{env_path}'")
@@ -49,7 +63,22 @@ def build_image_from_env(
         )
         
         logger.info(f"Image '{image_tag}' built successfully")
-        return image_id
+        
+        # Push to registry if requested
+        if push:
+            logger.info(f"Pushing image to registry...")
+            builder.push_image(image_tag=image_tag, registry=registry)
+            
+            # Return final tag (with registry prefix if applicable)
+            if registry:
+                final_tag = f"{registry}/{image_tag}"
+            else:
+                final_tag = image_tag
+            
+            logger.info(f"Image pushed successfully: {final_tag}")
+            return final_tag
+        
+        return image_tag
         
     except Exception as e:
         logger.error(f"Failed to build image: {e}")
