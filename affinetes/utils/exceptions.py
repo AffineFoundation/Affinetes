@@ -1,61 +1,51 @@
 """Custom exceptions for affinetes"""
 
 
-class RayfineEnvError(Exception):
+class AffinetesError(Exception):
     """Base exception for all affinetes errors"""
     pass
 
 
-class ValidationError(RayfineEnvError):
+class ValidationError(AffinetesError):
     """Input validation failed"""
     pass
 
 
-class ImageBuildError(RayfineEnvError):
+class ImageBuildError(AffinetesError):
     """Image build/push/pull failed"""
     pass
 
 
-class ImageNotFoundError(RayfineEnvError):
+class ImageNotFoundError(AffinetesError):
     """Docker image not found"""
     pass
 
 
-class ContainerError(RayfineEnvError):
+class ContainerError(AffinetesError):
     """Docker container operation failed"""
     pass
 
 
-class RayConnectionError(RayfineEnvError):
-    """Ray cluster connection failed"""
-    pass
-
-
-class RayExecutionError(RayfineEnvError):
-    """Ray Actor method execution failed"""
-    pass
-
-
-class ExecutionError(RayfineEnvError):
+class ExecutionError(AffinetesError):
     """Remote execution failed"""
     pass
 
 
-class BackendError(RayfineEnvError):
+class BackendError(AffinetesError):
     """Backend operation failed"""
     pass
 
 
-class SetupError(RayfineEnvError):
+class SetupError(AffinetesError):
     """Environment setup failed"""
     pass
 
 
-class EnvironmentError(RayfineEnvError):
+class EnvironmentError(AffinetesError):
     """Environment operation failed"""
     pass
 
 
-class NotImplementedError(RayfineEnvError):
+class NotImplementedError(AffinetesError):
     """Feature not yet implemented"""
     pass

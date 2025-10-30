@@ -1,7 +1,7 @@
 """Utilities for affinetes"""
 
 from .exceptions import (
-    RayfineEnvError,
+    AffinetesError,
     ValidationError,
     ImageBuildError,
     ImageNotFoundError,

@@ -223,7 +223,7 @@ class ImageBuilder:
             dockerfile_content = wrapper_dockerfile.read_text()
             
             # Insert LABEL instruction before EXPOSE
-            label_line = f'LABEL rayfine.env.type="{EnvType.FUNCTION_BASED}"\n'
+            label_line = f'LABEL affinetes.env.type="{EnvType.FUNCTION_BASED}"\n'
             dockerfile_content = dockerfile_content.replace(
                 "# Expose HTTP port\nEXPOSE 8000",
                 f"# Save environment metadata\n{label_line}\n# Expose HTTP port\nEXPOSE 8000"
@@ -268,7 +268,7 @@ class ImageBuilder:
                     
                     # Create minimal Dockerfile that just adds label
                     dockerfile_content = f"""FROM {image_tag}
-LABEL rayfine.env.type="{env_config.env_type}"
+LABEL affinetes.env.type="{env_config.env_type}"
 """
                     (tmpdir_path / "Dockerfile").write_text(dockerfile_content)
                     

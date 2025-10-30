@@ -188,7 +188,7 @@ class LocalBackend(AbstractBackend):
         try:
             img = self._docker_manager.client.images.get(self.image)
             labels = img.labels or {}
-            env_type = labels.get("rayfine.env.type", EnvType.FUNCTION_BASED)
+            env_type = labels.get("affinetes.env.type", EnvType.FUNCTION_BASED)
             logger.debug(f"Detected env_type from image labels: {env_type}")
             return env_type
         except Exception as e:
