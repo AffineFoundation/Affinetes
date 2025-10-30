@@ -130,23 +130,30 @@ def inject_evaluator_endpoint(app: FastAPI):
                 "timeout": request.timeout,
             }
 
-            # Priority: request parameter > environment variable
-            api_key = request.api_key or os.environ.get("CHUTES_API_KEY")
-            if not api_key:
-                raise HTTPException(
-                    status_code=401,
-                    detail="API key not provided in request and CHUTES_API_KEY environment variable is not set"
-                )
+            # Only validate API key for chutes.ai base URLs
+            api_key = None
+            if "chutes" in request.base_url.lower():
+                # Priority: request parameter > environment variable
+                api_key = request.api_key or os.environ.get("CHUTES_API_KEY")
+                if not api_key:
+                    raise HTTPException(
+                        status_code=401,
+                        detail="API key not provided in request and CHUTES_API_KEY environment variable is not set"
+                    )
 
-            is_valid = await validate_api_key(api_key, request.base_url)
-            if not is_valid:
-                raise HTTPException(
-                    status_code=401,
-                    detail=f"Invalid API key for {request.base_url}. Please check your CHUTES_API_KEY environment variable."
-                )
+                is_valid = await validate_api_key(api_key, request.base_url)
+                if not is_valid:
+                    raise HTTPException(
+                        status_code=401,
+                        detail=f"Invalid API key for {request.base_url}. Please check your CHUTES_API_KEY environment variable."
+                    )
 
-            logger.info(f"API key validated successfully for {request.base_url}")
-            
+                logger.info(f"API key validated successfully for {request.base_url}")
+            else:
+                # For non-chutes URLs, use provided API key without validation
+                api_key = request.api_key or os.environ.get("CHUTES_API_KEY")
+                logger.info(f"Using provided API key for {request.base_url} (validation skipped)")
+
             agent = APIAgent(
                 api_key=api_key,
                 base_url=request.base_url,
