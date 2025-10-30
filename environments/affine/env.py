@@ -24,13 +24,19 @@ class Actor:
         "ded": DEDTask,
     }
     
-    def __init__(self):
-        self.api_key = os.getenv("CHUTES_API_KEY")
+    def __init__(self, api_key: str = None):
+        """
+        Initialize Actor with API key
+        
+        Args:
+            api_key: API key for LLM service. If not provided, will use CHUTES_API_KEY env var
+        """
+        self.api_key = api_key or os.getenv("CHUTES_API_KEY")
         if not self.api_key:
-            raise ValueError("CHUTES_API_KEY not set")
+            raise ValueError("API key not provided and CHUTES_API_KEY environment variable not set")
     
-    async def _llm_chat(self, prompt, model, base_url, timeout, temperature):
-        """Call LLM API"""
+    async def _llm_chat(self, prompt, model, base_url, timeout, temperature, current_api_key):
+        """Call LLM API with specified API key"""
         # Unset SSL_CERT_FILE to avoid certificate path issues in container
         # Let httpx/certifi use default certificate bundle
         import os
@@ -39,7 +45,7 @@ class Actor:
         
         client = openai.AsyncOpenAI(
             base_url=base_url.rstrip('/'),
-            api_key=self.api_key,
+            api_key=current_api_key,
             timeout=httpx.Timeout(timeout),
             max_retries=0
         )
@@ -60,9 +66,23 @@ class Actor:
         base_url="https://llm.chutes.ai/v1",
         num_samples=1,
         timeout=600,
-        temperature=0.7
+        temperature=0.7,
+        api_key: str = None
     ):
-        """Run evaluation"""
+        """
+        Run evaluation
+        
+        Args:
+            task_type: Type of task to evaluate (sat, abd, ded)
+            model: Model name to use for evaluation
+            base_url: Base URL for LLM API
+            num_samples: Number of samples to evaluate
+            timeout: Timeout for LLM API calls
+            temperature: Temperature for LLM generation
+            api_key: Override API key for this evaluation. If not provided, uses instance api_key
+        """
+        # Allow per-call api_key override
+        current_api_key = api_key or self.api_key
         # Get task class from registry
         task_cls = self.TASKS.get(task_type)
         if not task_cls:
@@ -81,7 +101,7 @@ class Actor:
             
             # Call LLM
             try:
-                resp = await self._llm_chat(challenge.prompt, model, base_url, timeout, temperature)
+                resp = await self._llm_chat(challenge.prompt, model, base_url, timeout, temperature, current_api_key)
                 error = None
             except Exception as e:
                 import traceback

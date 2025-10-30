@@ -30,6 +30,7 @@ class EvaluatorRequest(BaseModel):
     env_server_base: Optional[str] = "http://localhost:8000"
     data_len: int = 200
     timeout: int = 2400
+    api_key: Optional[str] = None  # Allow API key override via request parameter
 
 
 class EvaluatorResponse(BaseModel):
@@ -129,11 +130,12 @@ def inject_evaluator_endpoint(app: FastAPI):
                 "timeout": request.timeout,
             }
 
-            api_key = os.environ.get("CHUTES_API_KEY")
+            # Priority: request parameter > environment variable
+            api_key = request.api_key or os.environ.get("CHUTES_API_KEY")
             if not api_key:
                 raise HTTPException(
                     status_code=401,
-                    detail="CHUTES_API_KEY environment variable is not set"
+                    detail="API key not provided in request and CHUTES_API_KEY environment variable is not set"
                 )
 
             is_valid = await validate_api_key(api_key, request.base_url)
