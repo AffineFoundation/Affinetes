@@ -18,7 +18,7 @@ setup(
     description="Container-based environment execution framework with HTTP",
     long_description=long_description,
     long_description_content_type="text/markdown",
-    author="Rayfine Team",
+    author="Affinetes Team",
     python_requires=">=3.8",
     packages=find_packages(exclude=["test", "test.*", "environments", "environments.*", "docs", "docs.*"]),
     install_requires=[

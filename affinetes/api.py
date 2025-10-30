@@ -5,7 +5,7 @@ import asyncio
 from typing import Optional, Dict, Any, List
 from pathlib import Path
 
-from .backends import LocalBackend, RemoteBackend
+from .backends import LocalBackend, BasilicaBackend
 from .infrastructure import ImageBuilder
 from .core import EnvironmentWrapper, get_registry, InstancePool, InstanceInfo
 from .utils.logger import logger
@@ -102,8 +102,8 @@ def load_env(
     Load and start an environment with multi-instance support
     
     Args:
-        image: Docker image name (for docker mode) or environment ID (for rayfine mode)
-        mode: Execution mode - "docker" or "rayfine"
+        image: Docker image name (for docker mode) or environment name (for basilica mode)
+        mode: Execution mode - "docker" or "basilica"
         replicas: Number of instances to deploy (default: 1)
         hosts: List of Docker daemon addresses for deployment
                - None or ["localhost"]: Deploy all replicas locally
@@ -213,13 +213,21 @@ def _load_single_instance(
             pull=pull,
             **backend_kwargs
         )
-    elif mode == "rayfine":
-        raise ValidationError(
-            f"Rayfine mode is not yet supported. "
-            f"Please use mode='docker' for Docker-based deployment."
+    elif mode == "basilica":
+        # Basilica mode for pre-deployed remote environments
+        if "base_url" not in backend_kwargs:
+            raise ValidationError(
+                "Basilica mode requires 'base_url' parameter. "
+                "Example: base_url='http://xx.xx.xx.xx:8080'"
+            )
+        backend = BasilicaBackend(
+            image=image,
+            **backend_kwargs
         )
     else:
-        raise ValidationError(f"Invalid mode: {mode}. Must be 'docker' or 'rayfine'")
+        raise ValidationError(
+            f"Invalid mode: {mode}. Must be 'docker' or 'basilica'."
+        )
     
     # Create wrapper
     wrapper = EnvironmentWrapper(backend=backend)

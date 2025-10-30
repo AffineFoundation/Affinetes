@@ -2,10 +2,10 @@
 
 from .base import AbstractBackend
 from .local import LocalBackend
-from .remote import RemoteBackend
+from .remote import BasilicaBackend
 
 __all__ = [
     "AbstractBackend",
     "LocalBackend",
-    "RemoteBackend",
+    "BasilicaBackend",
 ]

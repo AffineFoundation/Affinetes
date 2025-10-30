@@ -1,109 +1,146 @@
-"""Remote backend - API-based execution (stub)"""
+"""Basilica backend - Remote HTTP-based execution for pre-deployed environments"""
 
-from typing import Dict, Optional, Any
+import httpx
+import time
+from typing import Optional, Any
 
 from .base import AbstractBackend
-from ..utils.exceptions import BackendError, NotImplementedError
+from ..utils.exceptions import BackendError
 from ..utils.logger import logger
 
 
-class RemoteBackend(AbstractBackend):
+class BasilicaBackend(AbstractBackend):
     """
-    Remote execution backend via API calls
+    Basilica backend for calling pre-deployed environment services
     
-    This is a stub implementation for future API-based execution.
-    Users would call a remote service instead of running local containers.
+    Basilica is a remote environment hosting service that provides HTTP APIs
+    for accessing deployed container environments. Unlike LocalBackend which
+    manages Docker containers, BasilicaBackend connects to already-running
+    services.
+    
+    Usage:
+        >>> env = load_env(
+        ...     image="affine",
+        ...     mode="basilica",
+        ...     base_url="http://xx.xx.xx.xx:8080"
+        ... )
     """
     
     def __init__(
         self,
-        api_endpoint: str,
-        api_key: str,
-        environment_id: str,
+        image: str,
+        base_url: str,
+        timeout: int = 600,
         **kwargs
     ):
         """
-        Initialize remote backend
+        Initialize Basilica backend
         
         Args:
-            api_endpoint: Remote API endpoint URL
-            api_key: Authentication API key
-            environment_id: Environment identifier on remote service
+            image: Environment name/identifier (e.g., "affine", "agentgym")
+            base_url: Basilica service base URL
+            timeout: Request timeout in seconds
             **kwargs: Additional configuration
         """
-        self.api_endpoint = api_endpoint
-        self.api_key = api_key
-        self.environment_id = environment_id
+        self.image = image
+        self.base_url = base_url.rstrip('/')
+        self.timeout = timeout
         self.config = kwargs
         
-        logger.info(f"RemoteBackend initialized for environment '{environment_id}'")
-        logger.warning("RemoteBackend is not yet implemented - this is a stub")
+        # Construct environment endpoint
+        self.env_endpoint = f"{self.base_url}/{image}"
+        
+        # Create HTTP client
+        self.client = httpx.AsyncClient(
+            timeout=timeout,
+            limits=httpx.Limits(
+                max_connections=100,
+                max_keepalive_connections=20
+            )
+        )
+        
+        # Generate unique name for this backend
+        self.name = f"basilica-{image}-{int(time.time())}"
+        
+        logger.info(f"BasilicaBackend initialized: {self.env_endpoint}")
     
-    def call_method(self, method_name: str, *args, **kwargs) -> Any:
+    async def call_method(self, method_name: str, *args, **kwargs) -> Any:
         """
-        Call method via remote API
+        Call method on remote Basilica environment
         
         Args:
-            method_name: Method name
-            *args: Positional arguments
+            method_name: Method name to call
+            *args: Positional arguments (converted to kwargs)
             **kwargs: Keyword arguments
             
         Returns:
             Method result
         """
-        raise NotImplementedError(
-            "RemoteBackend is not yet implemented. "
-            "Use LocalBackend for Docker-based execution."
-        )
+        try:
+            logger.debug(f"Calling Basilica method: {method_name}")
+            
+            # Basilica uses direct endpoint routing: POST /{env}/{method}
+            response = await self.client.post(
+                f"{self.env_endpoint}/{method_name}",
+                json=kwargs
+            )
+            
+            response.raise_for_status()
+            return response.json()
+            
+        except httpx.HTTPStatusError as e:
+            raise BackendError(
+                f"Basilica HTTP {e.response.status_code}: {e.response.text}"
+            )
+        except Exception as e:
+            raise BackendError(f"Failed to call method '{method_name}': {e}")
     
-    def list_methods(self) -> list:
+    async def list_methods(self) -> list:
         """
-        List available methods from remote environment
+        List available methods from Basilica environment
         
         Returns:
-            List of method names
+            List of method names or endpoint information
         """
-        raise NotImplementedError(
-            "RemoteBackend is not yet implemented."
-        )
+        try:
+            # Basilica provides /methods endpoint for introspection
+            response = await self.client.get(f"{self.env_endpoint}/methods")
+            response.raise_for_status()
+            
+            data = response.json()
+            return data if isinstance(data, list) else data.get("methods", [])
+            
+        except Exception as e:
+            logger.warning(f"Failed to list methods: {e}")
+            return []
     
-    def cleanup(self) -> None:
-        """Clean up remote session"""
-        logger.info("RemoteBackend cleanup (stub)")
+    async def health_check(self) -> bool:
+        """
+        Check if Basilica environment is healthy
+        
+        Returns:
+            True if healthy
+        """
+        try:
+            response = await self.client.get(
+                f"{self.env_endpoint}/health",
+                timeout=5
+            )
+            return response.status_code == 200 and response.text == "ok"
+        except Exception as e:
+            logger.debug(f"Health check failed: {e}")
+            return False
+    
+    async def cleanup(self) -> None:
+        """Close HTTP client (no container cleanup needed)"""
+        logger.info(f"Closing Basilica backend: {self.name}")
+        await self.client.aclose()
     
     def is_ready(self) -> bool:
         """
-        Check if backend is ready
+        Check if backend is ready (Basilica environments are always ready)
         
         Returns:
-            False (not implemented)
+            True
         """
-        return False
-
-
-# Future implementation outline:
-# 
-# class RemoteBackend(AbstractBackend):
-#     """API-based remote execution"""
-#     
-#     def setup(self, env_vars):
-#         # POST /environments/{id}/setup with env_vars
-#         response = requests.post(
-#             f"{self.api_endpoint}/environments/{self.environment_id}/setup",
-#             headers={"Authorization": f"Bearer {self.api_key}"},
-#             json={"env_vars": env_vars}
-#         )
-#         # Handle response
-#     
-#     def call_method(self, method_name, *args, **kwargs):
-#         # POST /environments/{id}/call with method and args
-#         response = requests.post(
-#             f"{self.api_endpoint}/environments/{self.environment_id}/call",
-#             headers={"Authorization": f"Bearer {self.api_key}"},
-#             json={
-#                 "method": method_name,
-#                 "args": args,
-#                 "kwargs": kwargs
-#             }
-#         )
-#         return response.json()["result"]
+        return True
