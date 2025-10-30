@@ -34,7 +34,7 @@ class AbstractBackend(ABC):
     
     @abstractmethod
     def cleanup(self) -> None:
-        """Clean up resources (stop containers, disconnect Ray, etc.)"""
+        """Clean up resources (stop containers, close connections, etc.)"""
         pass
     
     @abstractmethod

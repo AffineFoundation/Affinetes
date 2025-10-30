@@ -251,7 +251,7 @@ class ImageBuilder:
         Save environment metadata to image labels
         
         For http_based environments, we need to add labels after build
-        since they provide their own Dockerfile without rayfine labels.
+        since they provide their own Dockerfile without affinetes labels.
         
         Args:
             image_tag: Image tag

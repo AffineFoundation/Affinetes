@@ -10,17 +10,17 @@ USER root
 # Install HTTP server dependencies
 RUN pip install --no-cache-dir fastapi uvicorn[standard] httpx pydantic
 
-# Create rayfine directory and copy server
-RUN mkdir -p /app/_rayfine
-COPY http_server.py /app/_rayfine/server.py
-RUN echo "" > /app/_rayfine/__init__.py
+# Create affinetes directory and copy server
+RUN mkdir -p /app/_affinetes
+COPY http_server.py /app/_affinetes/server.py
+RUN echo "" > /app/_affinetes/__init__.py
 
 # Make directory world-writable to avoid permission issues
-RUN chmod -R 777 /app/_rayfine
+RUN chmod -R 777 /app/_affinetes
 
 # Expose HTTP port
 EXPOSE 8000
 
 # Start server with 4 workers for high concurrency
 WORKDIR /app
-CMD ["python", "-m", "uvicorn", "_rayfine.server:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "4"]
+CMD ["python", "-m", "uvicorn", "_affinetes.server:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "4"]

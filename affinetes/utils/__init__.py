@@ -6,8 +6,6 @@ from .exceptions import (
     ImageBuildError,
     ImageNotFoundError,
     ContainerError,
-    RayConnectionError,
-    RayExecutionError,
     BackendError,
     SetupError,
     EnvironmentError,
@@ -17,13 +15,11 @@ from .logger import Logger
 from .config import Config
 
 __all__ = [
-    "RayfineEnvError",
+    "AffinetesError",
     "ValidationError",
     "ImageBuildError",
     "ImageNotFoundError",
     "ContainerError",
-    "RayConnectionError",
-    "RayExecutionError",
     "BackendError",
     "SetupError",
     "EnvironmentError",

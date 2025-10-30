@@ -2,7 +2,7 @@
 Affinetes: Container-based Environment Execution Framework
 
 A framework for defining, building, and executing isolated environments
-in Docker containers with Ray-based remote execution.
+in Docker containers with HTTP-based remote execution.
 
 Basic Usage:
     # Build environment image

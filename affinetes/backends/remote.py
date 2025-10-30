@@ -126,7 +126,7 @@ class BasilicaBackend(AbstractBackend):
                 f"{self.env_endpoint}/health",
                 timeout=5
             )
-            return response.status_code == 200 and response.text == "ok"
+            return response.status_code == 200
         except Exception as e:
             logger.debug(f"Health check failed: {e}")
             return False

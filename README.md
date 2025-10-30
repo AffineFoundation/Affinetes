@@ -152,7 +152,7 @@ Load environment from pre-built Docker image.
 ```python
 af_env.load_env(
     image: str,                             # Docker image name
-    mode: str = "docker",                   # "docker" or "rayfine"
+    mode: str = "docker",                   # "docker" or "basilica"
     replicas: int = 1,                      # Number of instances
     hosts: List[str] = None,                # Docker daemon addresses
     load_balance: str = "random",           # "random" or "round_robin"
