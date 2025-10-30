@@ -32,8 +32,6 @@ class Actor:
             api_key: API key for LLM service. If not provided, will use CHUTES_API_KEY env var
         """
         self.api_key = api_key or os.getenv("CHUTES_API_KEY")
-        if not self.api_key:
-            raise ValueError("API key not provided and CHUTES_API_KEY environment variable not set")
     
     async def _llm_chat(self, prompt, model, base_url, timeout, temperature, current_api_key):
         """Call LLM API with specified API key"""
