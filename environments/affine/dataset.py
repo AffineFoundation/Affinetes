@@ -31,7 +31,12 @@ async def _get_client() -> aiohttp.ClientSession:
     """Get or create shared HTTP client session"""
     global _http_client
     if _http_client is None or _http_client.closed:
-        _http_client = aiohttp.ClientSession()
+        timeout = aiohttp.ClientTimeout(total=300, connect=60, sock_read=120)
+        connector = aiohttp.TCPConnector(limit=100, limit_per_host=30, ttl_dns_cache=300)
+        _http_client = aiohttp.ClientSession(
+            timeout=timeout,
+            connector=connector
+        )
     return _http_client
 
 class R2BufferedDataset:
@@ -92,7 +97,7 @@ class R2BufferedDataset:
             url = f"{self._public_base}/{self._index_key}"
             sess = await _get_client()
             logger.debug(f"Loading public R2 index: {url}")
-            async with sess.get(url, timeout=aiohttp.ClientTimeout(total=30)) as resp:
+            async with sess.get(url, timeout=aiohttp.ClientTimeout(total=120)) as resp:
                 resp.raise_for_status()
                 self._index = await resp.json()
         else:
@@ -123,7 +128,7 @@ class R2BufferedDataset:
             url = f"{self._public_base}/{key}"
             logger.debug(f"Downloading public R2 chunk: {url}")
             sess = await _get_client()
-            async with sess.get(url, timeout=aiohttp.ClientTimeout(total=60)) as resp:
+            async with sess.get(url, timeout=aiohttp.ClientTimeout(total=300)) as resp:
                 resp.raise_for_status()
                 body = await resp.read()
         else:
