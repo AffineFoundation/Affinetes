@@ -161,6 +161,7 @@ af_env.load_env(
     env_type: str = None,                   # Override type detection
     force_recreate: bool = False,           # Force container recreation
     pull: bool = False,                     # Pull image before deployment
+    mem_limit: str = None,                  # Memory limit (e.g., "512m", "1g", "2g")
     **kwargs                                # Additional backend options
 ) -> EnvironmentWrapper
 ```
@@ -419,6 +420,32 @@ async def main():
 asyncio.run(main())
 ```
 
+### Memory Limits and Auto-Restart
+
+```python
+# Set memory limit to prevent memory leaks
+# Container will be killed and auto-restarted when exceeding limit
+env = af_env.load_env(
+    image="affine:latest",
+    mem_limit="512m",        # Limit memory to 512MB
+    env_vars={"API_KEY": "your-key"}
+)
+
+# Multi-instance with memory limits (each instance limited)
+env = af_env.load_env(
+    image="affine:latest",
+    replicas=3,
+    mem_limit="1g",          # Each instance limited to 1GB
+    load_balance="random"
+)
+```
+
+**How it works:**
+- When container exceeds `mem_limit`, Docker's OOM killer terminates it
+- Due to `restart_policy="always"`, container automatically restarts
+- This prevents memory leaks from consuming all system resources
+- See [`examples/memory_limit_example.py`](examples/memory_limit_example.py:1) for complete examples
+
 ### Container Reuse
 
 ```python
@@ -587,6 +614,47 @@ for inst in stats['instances']:
 - **Performance**: Direct container-to-container communication
 - **Simplicity**: No port management or conflicts
 - **Encryption**: SSH tunnel for remote access
+
+### SSH Tunnel for Secure Remote Access
+
+When deploying to remote Docker hosts, Affinetes automatically creates **SSH tunnels** to securely access Docker containers' internal network without exposing any ports:
+
+```
+┌──────────────────┐                    ┌──────────────────┐
+│  Local Machine   │                    │  Remote Host     │
+│                  │                    │                  │
+│  Affinetes       │  SSH Connection    │  Docker Daemon   │
+│  Framework       │◄──────────────────►│                  │
+│                  │  (Encrypted)       │                  │
+│  127.0.0.1:XXXX ─┼────────────────────┼→ 172.17.0.X:8000 │
+│  (Local Port)    │   Port Forwarding  │  (Container IP)  │
+└──────────────────┘                    └──────────────────┘
+```
+
+**Key Features:**
+- **Zero Port Exposure**: Remote containers never expose ports to internet
+- **Encrypted by Default**: All traffic through SSH tunnel (port 22 only)
+- **Fully Automatic**: Framework handles tunnel creation/cleanup transparently
+- **Multi-Container**: Each remote container gets isolated tunnel with dynamic port allocation
+
+**Implementation:**
+```python
+# Automatic tunnel creation and management
+env = af_env.load_env(
+    image="affine:latest",
+    hosts=["ssh://user@remote-host"]  # SSH tunnel auto-created
+)
+result = await env.evaluate(...)  # Traffic via tunnel
+await env.cleanup()  # Tunnel auto-closed
+```
+
+**Technical Details:**
+- Native Python `paramiko` library (no external dependencies)
+- SSH public key authentication (see SSH Setup section above)
+- Channel-based port forwarding with proper cleanup
+- Implementation: [`affinetes/infrastructure/ssh_tunnel.py`](affinetes/infrastructure/ssh_tunnel.py:1)
+
+**Troubleshooting:** See "SSH connection issues" section below for setup verification and common problems.
 
 ### Why Two-Stage Build?
 
