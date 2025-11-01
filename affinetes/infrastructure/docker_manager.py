@@ -120,6 +120,7 @@ class DockerManager:
         name: Optional[str] = None,
         detach: bool = True,
         force_recreate: bool = False,
+        mem_limit: Optional[str] = None,
         **kwargs
     ) -> Any:
         """
@@ -130,6 +131,7 @@ class DockerManager:
             name: Optional container name
             detach: Run container in background
             force_recreate: If True, remove existing container and create new one
+            mem_limit: Memory limit (e.g., "512m", "1g", "2g")
             **kwargs: Additional docker.containers.run() parameters
             
         Returns:
@@ -183,6 +185,11 @@ class DockerManager:
             
             if name:
                 container_config["name"] = name
+            
+            # Add memory limit if specified
+            if mem_limit:
+                container_config["mem_limit"] = mem_limit
+                logger.debug(f"Setting memory limit: {mem_limit}")
             
             container = self.client.containers.run(**container_config)
             

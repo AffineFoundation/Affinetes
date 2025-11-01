@@ -35,6 +35,7 @@ class LocalBackend(AbstractBackend):
         env_type_override: Optional[str] = None,
         force_recreate: bool = False,
         pull: bool = False,
+        mem_limit: Optional[str] = None,
         **docker_kwargs
     ):
         """
@@ -48,6 +49,7 @@ class LocalBackend(AbstractBackend):
             env_type_override: Override environment type detection
             force_recreate: If True, remove existing container and create new one
             pull: If True, pull image before starting container
+            mem_limit: Memory limit (e.g., "512m", "1g", "2g")
             **docker_kwargs: Additional Docker container options
         """
         self.image = image
@@ -64,6 +66,7 @@ class LocalBackend(AbstractBackend):
         self._env_type_override = env_type_override
         self._force_recreate = force_recreate
         self._pull = pull
+        self._mem_limit = mem_limit
         
         # SSH tunnel for remote access
         self._is_remote = host and host.startswith("ssh://")
@@ -111,6 +114,7 @@ class LocalBackend(AbstractBackend):
                 "detach": True,
                 "restart_policy": {"Name": "always"},
                 "force_recreate": self._force_recreate,
+                "mem_limit": self._mem_limit,
                 **docker_kwargs
             }
             

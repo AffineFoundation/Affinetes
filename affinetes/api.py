@@ -96,6 +96,7 @@ def load_env(
     env_type: Optional[str] = None,
     force_recreate: bool = False,
     pull: bool = False,
+    mem_limit: Optional[str] = None,
     **backend_kwargs
 ) -> EnvironmentWrapper:
     """
@@ -115,6 +116,7 @@ def load_env(
         env_type: Override environment type detection ("function_based" or "http_based")
         force_recreate: If True, remove and recreate containers even if they exist (default: False)
         pull: If True, pull the image before deployment (default: False)
+        mem_limit: Memory limit for container (e.g., "512m", "1g", "2g")
         **backend_kwargs: Additional backend-specific parameters
         
     Returns:
@@ -165,6 +167,7 @@ def load_env(
                 env_type=env_type,
                 force_recreate=force_recreate,
                 pull=pull,
+                mem_limit=mem_limit,
                 **backend_kwargs
             )
         
@@ -180,6 +183,7 @@ def load_env(
             env_type=env_type,
             force_recreate=force_recreate,
             pull=pull,
+            mem_limit=mem_limit,
             **backend_kwargs
         )
         
@@ -197,6 +201,7 @@ def _load_single_instance(
     env_type: Optional[str],
     force_recreate: bool = False,
     pull: bool = False,
+    mem_limit: Optional[str] = None,
     **backend_kwargs
 ) -> EnvironmentWrapper:
     """Load a single instance"""
@@ -211,6 +216,7 @@ def _load_single_instance(
             env_type_override=env_type,
             force_recreate=force_recreate,
             pull=pull,
+            mem_limit=mem_limit,
             **backend_kwargs
         )
     elif mode == "basilica":
@@ -251,6 +257,7 @@ def _load_multi_instance(
     env_type: Optional[str],
     force_recreate: bool = False,
     pull: bool = False,
+    mem_limit: Optional[str] = None,
     **backend_kwargs
 ) -> EnvironmentWrapper:
     """Load multiple instances with load balancing"""
@@ -285,6 +292,7 @@ def _load_multi_instance(
                     env_type=env_type,
                     force_recreate=force_recreate,
                     pull=pull,
+                    mem_limit=mem_limit,
                     **backend_kwargs
                 )
                 for i in range(replicas)
@@ -339,6 +347,7 @@ async def _deploy_instance(
     env_type: Optional[str],
     force_recreate: bool = False,
     pull: bool = False,
+    mem_limit: Optional[str] = None,
     **backend_kwargs
 ) -> InstanceInfo:
     """Deploy a single instance (async)"""
@@ -361,6 +370,7 @@ async def _deploy_instance(
             env_type_override=env_type,
             force_recreate=force_recreate,
             pull=pull,
+            mem_limit=mem_limit,
             **backend_kwargs
         )
     else:
