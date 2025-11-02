@@ -16,7 +16,7 @@ WORKDIR /app
 
 RUN git clone --recurse-submodules https://github.com/angosr/AgentGym.git AgentGym \
     && cd AgentGym \
-    && git checkout 8c9a7124b73516853296dfc02210c2f44c5232aa \
+    && git checkout 634c893e09a4b9472a0b5aadcb103c533e92414c \
     && git submodule update --init --recursive
 
 ENV PATH=/opt/miniconda/envs/agentenv/bin:/opt/miniconda/bin:$PATH
