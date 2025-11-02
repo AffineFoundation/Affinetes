@@ -108,6 +108,7 @@ class LocalBackend(AbstractBackend):
                     docker_kwargs["environment"] = env_vars
             
             # Detect if running inside Docker (DinD scenario)
+            # This works for both local DinD and remote DinD scenarios
             is_running_in_docker = self._is_running_in_docker()
             
             # Prepare container configuration
@@ -121,8 +122,10 @@ class LocalBackend(AbstractBackend):
                 **docker_kwargs
             }
             
-            # If running in Docker, ensure network connectivity
-            if is_running_in_docker and not self._is_remote:
+            # DinD network handling: Works for both local and remote DinD
+            # When affinetes runs in a container (local or remote), environment
+            # containers must join the same network for communication
+            if is_running_in_docker:
                 network_name = self._ensure_docker_network()
                 # Important: Set the network for the new environment container
                 # This ensures it joins the same network as affinetes container

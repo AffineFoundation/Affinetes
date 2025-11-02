@@ -8,6 +8,7 @@ import time
 import asyncio
 import httpx
 import traceback
+import random
 from pathlib import Path
 from typing import Dict, Any, List, Optional
 from functools import partial
@@ -31,6 +32,7 @@ class EvaluatorRequest(BaseModel):
     data_len: int = 200
     timeout: int = 2400
     api_key: Optional[str] = None  # Allow API key override via request parameter
+    seed: Optional[int] = None  # Random seed for reproducible generation
 
 
 class EvaluatorResponse(BaseModel):
@@ -39,6 +41,7 @@ class EvaluatorResponse(BaseModel):
     success_rate: float
     num_evaluated: int
     time_taken: float
+    seed: Optional[int] = None
     details: List[Dict[str, Any]]
 
 
@@ -130,6 +133,11 @@ def inject_evaluator_endpoint(app: FastAPI):
                 "timeout": request.timeout,
             }
 
+            # Generate random seed if not provided
+            seed = request.seed
+            if seed is None:
+                seed = random.randint(0, 2**32 - 1)
+            
             # Only validate API key for chutes.ai base URLs
             api_key = None
             if "chutes" in request.base_url.lower():
@@ -161,6 +169,7 @@ def inject_evaluator_endpoint(app: FastAPI):
                 max_tokens=request.max_tokens,
                 temperature=request.temperature,
                 top_p=request.top_p,
+                seed=seed,
             )
             
             if request.ids:
@@ -233,6 +242,7 @@ def inject_evaluator_endpoint(app: FastAPI):
                 success_rate=success_rate,
                 num_evaluated=num_evaluated,
                 time_taken=time_taken,
+                seed=seed,
                 details=details
             )
             

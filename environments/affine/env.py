@@ -6,6 +6,7 @@ import gc
 import httpx
 import openai
 import sys
+import random
 
 # Add /app to path to import local modules
 if '/app' not in sys.path:
@@ -34,8 +35,8 @@ class Actor:
         """
         self.api_key = api_key or os.getenv("CHUTES_API_KEY")
     
-    async def _llm_chat(self, prompt, model, base_url, timeout, temperature, current_api_key):
-        """Call LLM API with specified API key"""
+    async def _llm_chat(self, prompt, model, base_url, timeout, temperature, current_api_key, seed=None):
+        """Call LLM API with specified API key and optional seed"""
         # Unset SSL_CERT_FILE to avoid certificate path issues in container
         # Let httpx/certifi use default certificate bundle
         import os
@@ -48,13 +49,20 @@ class Actor:
             timeout=httpx.Timeout(timeout),
             max_retries=0
         )
+
+        # Prepare API call parameters
+        params = {
+            "model": model,
+            "messages": [{"role": "user", "content": prompt}],
+            "temperature": temperature,
+            "stream": False
+        }
         
-        response = await client.chat.completions.create(
-            model=model,
-            messages=[{"role": "user", "content": prompt}],
-            temperature=temperature,
-            stream=False
-        )
+        # Add seed if provided
+        if seed is not None:
+            params["seed"] = seed
+
+        response = await client.chat.completions.create(**params)
         
         return response.choices[0].message.content.strip()
     
@@ -66,7 +74,8 @@ class Actor:
         num_samples=1,
         timeout=600,
         temperature=0.7,
-        api_key: str = None
+        api_key: str = None,
+        seed: int = None
     ):
         """
         Run evaluation
@@ -79,7 +88,12 @@ class Actor:
             timeout: Timeout for LLM API calls
             temperature: Temperature for LLM generation
             api_key: Override API key for this evaluation. If not provided, uses instance api_key
+            seed: Random seed for LLM generation. Used to ensure reproducible results. If not provided, a random seed will be generated.
         """
+        # Generate random seed if not provided
+        if seed is None:
+            seed = random.randint(0, 2**32 - 1)
+
         # Allow per-call api_key override
         current_api_key = api_key or self.api_key
         # Get task class from registry
@@ -100,7 +114,7 @@ class Actor:
             
             # Call LLM
             try:
-                resp = await self._llm_chat(challenge.prompt, model, base_url, timeout, temperature, current_api_key)
+                resp = await self._llm_chat(challenge.prompt, model, base_url, timeout, temperature, current_api_key, seed)
                 error = None
             except Exception as e:
                 import traceback
@@ -111,13 +125,18 @@ class Actor:
             score = 0.0
             if resp:
                 score = await task_instance.evaluate(resp, challenge)
-            
+
+            conversation = [
+                {"role": "user", "content": challenge.prompt},
+                {"role": "assistant", "content": resp}
+            ]
+
             total_score += score
             details.append({
                 "id": i,
                 "reward": score,
                 "success": score > 0,
-                "experiences": {"challenge": challenge.prompt, "llm_response": resp},
+                "experiences": conversation,
                 **({} if not error else {"error": error, "error_type": "llm_failure"})
             })
         
@@ -127,6 +146,7 @@ class Actor:
             "success_rate": sum(1 for d in details if d["success"]) / num_samples,
             "num_evaluated": num_samples,
             "time_taken": time.time() - start,
+            "seed": seed,
             "details": details
         }
 
