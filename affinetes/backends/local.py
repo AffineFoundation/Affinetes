@@ -107,7 +107,10 @@ class LocalBackend(AbstractBackend):
                 else:
                     docker_kwargs["environment"] = env_vars
             
-            # Prepare container configuration (no port exposure)
+            # Detect if running inside Docker (DinD scenario)
+            is_running_in_docker = self._is_running_in_docker()
+            
+            # Prepare container configuration
             container_config = {
                 "image": self.image,
                 "name": self.name,
@@ -118,16 +121,19 @@ class LocalBackend(AbstractBackend):
                 **docker_kwargs
             }
             
+            # If running in Docker, ensure network connectivity
+            if is_running_in_docker and not self._is_remote:
+                network_name = self._ensure_docker_network()
+                container_config["network"] = network_name
+                logger.debug(f"Running in Docker, using network: {network_name}")
+            
             # Start container
             self._container = self._docker_manager.start_container(**container_config)
             
-            # Get container internal IP
-            container_ip = self._docker_manager.get_container_ip(self._container)
-            logger.info(f"Container started with internal IP: {container_ip}")
-            
-            # Determine access method: direct or via SSH tunnel
+            # Determine access address
             if self._is_remote:
                 # Remote deployment: create SSH tunnel
+                container_ip = self._docker_manager.get_container_ip(self._container)
                 logger.debug("Remote deployment detected, creating SSH tunnel")
                 self._ssh_tunnel_manager = SSHTunnelManager(self.host)
                 local_host, local_port = self._ssh_tunnel_manager.create_tunnel(
@@ -135,11 +141,17 @@ class LocalBackend(AbstractBackend):
                     remote_port=8000
                 )
                 logger.info(f"Accessing via SSH tunnel: {local_host}:{local_port}")
+            elif is_running_in_docker:
+                # DinD scenario: use container name as hostname
+                local_host = self.name
+                local_port = 8000
+                logger.info(f"DinD deployment, accessing via container name: {local_host}:{local_port}")
             else:
-                # Local deployment: direct access
+                # Normal local deployment: use container IP
+                container_ip = self._docker_manager.get_container_ip(self._container)
                 local_host = container_ip
                 local_port = 8000
-                logger.debug(f"Local deployment, direct access: {local_host}:{local_port}")
+                logger.info(f"Local deployment, accessing via IP: {local_host}:{local_port}")
             
             # Create HTTP executor with accessible address
             self._http_executor = HTTPExecutor(
@@ -184,6 +196,98 @@ class LocalBackend(AbstractBackend):
                 except:
                     pass
             raise BackendError(f"Failed to start container: {e}")
+    
+    def _is_running_in_docker(self) -> bool:
+        """Check if affinetes itself is running inside a Docker container"""
+        import os
+        
+        # Method 1: Check for .dockerenv file
+        if os.path.exists("/.dockerenv"):
+            return True
+        
+        # Method 2: Check cgroup (most reliable)
+        try:
+            with open("/proc/1/cgroup", "r") as f:
+                content = f.read()
+                # Docker containers have /docker/ in cgroup paths
+                if "/docker/" in content or "/kubepods/" in content:
+                    return True
+        except (FileNotFoundError, PermissionError):
+            pass
+        
+        # Method 3: Check for container-specific mount info
+        try:
+            with open("/proc/self/mountinfo", "r") as f:
+                content = f.read()
+                if "/docker/" in content or "overlay" in content:
+                    return True
+        except (FileNotFoundError, PermissionError):
+            pass
+        
+        return False
+    
+    def _ensure_docker_network(self) -> str:
+        """Ensure Docker network exists and affinetes container is connected to it"""
+        import socket
+        
+        # Get current container's networks (affinetes container)
+        try:
+            hostname = socket.gethostname()
+            current_container = self._docker_manager.client.containers.get(hostname)
+            current_container.reload()
+            
+            # Get all networks the affinetes container is connected to
+            current_networks = list(current_container.attrs["NetworkSettings"]["Networks"].keys())
+            logger.debug(f"Current container networks: {current_networks}")
+            
+            # Prefer using an existing network (not 'bridge' or 'host')
+            # This ensures env containers join the same network as affinetes
+            for net_name in current_networks:
+                if net_name not in ["bridge", "host", "none"]:
+                    logger.info(f"Using affinetes container's network: {net_name}")
+                    return net_name
+            
+            # If only on default bridge, create/use affinetes-network
+            network_name = "affinetes-network"
+            
+            # Ensure network exists
+            try:
+                network = self._docker_manager.client.networks.get(network_name)
+                logger.debug(f"Network {network_name} exists")
+            except:
+                # Create network
+                network = self._docker_manager.client.networks.create(
+                    network_name,
+                    driver="bridge",
+                    check_duplicate=True
+                )
+                logger.info(f"Created network: {network_name}")
+            
+            # Connect affinetes container to this network
+            network.reload()
+            if current_container.id not in [c.id for c in network.containers]:
+                network.connect(current_container)
+                logger.info(f"Connected affinetes container to {network_name}")
+            else:
+                logger.debug(f"Affinetes container already in {network_name}")
+            
+            return network_name
+            
+        except Exception as e:
+            # Fallback: use default approach
+            logger.warning(f"Could not determine current container network: {e}")
+            logger.warning("Falling back to affinetes-network")
+            
+            network_name = "affinetes-network"
+            try:
+                self._docker_manager.client.networks.get(network_name)
+            except:
+                self._docker_manager.client.networks.create(
+                    network_name,
+                    driver="bridge",
+                    check_duplicate=True
+                )
+            return network_name
     
     def _get_env_type(self) -> str:
         """Get environment type from image labels"""

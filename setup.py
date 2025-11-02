@@ -27,6 +27,7 @@ setup(
         "docker>=7.0.0",
         "httpx>=0.27.0",
         "paramiko>=3.0.0",
+        "nest-asyncio>=1.5.0",
     ],
     extras_require={
         "dev": [
