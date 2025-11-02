@@ -2,6 +2,7 @@
 
 import os
 import time
+import gc
 import httpx
 import openai
 import sys
@@ -120,7 +121,7 @@ class Actor:
                 **({} if not error else {"error": error, "error_type": "llm_failure"})
             })
         
-        return {
+        result = {
             "task_name": f"affine:{task_type}",
             "total_score": total_score,
             "success_rate": sum(1 for d in details if d["success"]) / num_samples,
@@ -128,3 +129,9 @@ class Actor:
             "time_taken": time.time() - start,
             "details": details
         }
+
+        # Force garbage collection to free memory immediately
+        del task_instance
+        gc.collect()
+
+        return result
