@@ -51,7 +51,7 @@ class HTTPExecutor:
         - function_based: POST /call with {"method": "...", "args": [...], "kwargs": {...}}
         - http_based: POST /{method_name} with direct kwargs
         """
-        max_retries = 2
+        max_retries = 1
         retry_delay = 2  # seconds
 
         for attempt in range(max_retries):
@@ -96,7 +96,7 @@ class HTTPExecutor:
                 if attempt < max_retries - 1:
                     logger.warning(
                         f"Connection failed for method '{method_name}' (attempt {attempt + 1}/{max_retries}): {e}. "
-                        f"Container may have been restarted due to OOM. Retrying in {retry_delay}s..."
+                        f"Retrying in {retry_delay}s..."
                     )
                     await asyncio.sleep(retry_delay)
                     # Wait for container to be ready after restart
