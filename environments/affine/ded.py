@@ -5,22 +5,11 @@ import asyncio
 import logging
 from typing import Any, Dict
 from executor import ProgramExecutor
-from dataset import R2BufferedDataset
+from dataset import R2Dataset
 from models import Challenge
 
 # Logger
 logger = logging.getLogger("affine")
-
-# Singleton storage for dataset instances
-_dataset_instances = {}
-
-def singleton(key: str, factory):
-    """Singleton pattern for dataset instances"""
-    def wrapper():
-        if key not in _dataset_instances:
-            _dataset_instances[key] = factory()
-        return _dataset_instances[key]
-    return wrapper
 
 
 # -------------------------------- Helpers -------------------------------- #
@@ -45,24 +34,23 @@ def _normalize(text: str) -> str:
     return "\n".join(line.rstrip() for line in text.rstrip().splitlines())
 
 
-# Lazy-loaded dataset singleton
-dataset = singleton('rl-python', lambda: R2BufferedDataset(
-    dataset_name="satpalsr/rl-python",
-    buffer_size=5,
-    max_batch=5,
-))
-
-
 class DEDTask:
     """DED (Direct Execution Debug) task - Python program generation from requirements"""
     
-    def __init__(self):
+    def __init__(self, dataset_name: str = "satpalsr/rl-python"):
+        """
+        Initialize DED task.
+        
+        Args:
+            dataset_name: Name of the R2 dataset to use
+        """
         self._executor = ProgramExecutor()
+        self._dataset = R2Dataset(dataset_name=dataset_name)
 
     async def generate(self) -> Challenge:
         """Generate a coding challenge from R2 dataset"""
         logger.debug("Generating DED challenge")
-        sample = await dataset().get()
+        sample = await self._dataset.get()
         
         if sample is None:
             raise RuntimeError("Failed to fetch dataset row")

@@ -1,27 +1,14 @@
 import re
-import time
-import random
 import asyncio
 import functools
 import logging
-from typing import Any, Dict, Optional, Tuple, Callable
+from typing import Any, Callable
 from executor import ProgramExecutor
-from dataset import R2BufferedDataset
+from dataset import R2Dataset
 from models import Challenge
 
 # Logger
 logger = logging.getLogger("affine")
-
-# Singleton storage for dataset instances
-_dataset_instances = {}
-
-def singleton(key: str, factory: Callable):
-    """Singleton pattern for dataset instances"""
-    def wrapper():
-        if key not in _dataset_instances:
-            _dataset_instances[key] = factory()
-        return _dataset_instances[key]
-    return wrapper
 
 class RetryNeeded(ValueError):
     pass
@@ -76,24 +63,23 @@ Requirements for the input data within the tags:
 
 Please analyze the program and provide the required input:"""
 
-# Lazy-loaded dataset singleton
-dataset = singleton('rl-python', lambda: R2BufferedDataset(
-    dataset_name="satpalsr/rl-python",
-    buffer_size=5,
-    max_batch=5,
-))
-
-
 class ABDTask:
     """ABD (Algorithm By Deduction) task - reverse engineering program inputs"""
     
-    def __init__(self):
+    def __init__(self, dataset_name: str = "satpalsr/rl-python"):
+        """
+        Initialize ABD task.
+        
+        Args:
+            dataset_name: Name of the R2 dataset to use
+        """
         self._executor = ProgramExecutor()
+        self._dataset = R2Dataset(dataset_name=dataset_name)
 
     async def generate(self) -> Challenge:
         """Generate a reverse engineering challenge from R2 dataset"""
         logger.debug("Generating ABD challenge")
-        sample = await dataset().get()
+        sample = await self._dataset.get()
         
         program = sample.get("program")
         example_in = sample.get("inputs", "")

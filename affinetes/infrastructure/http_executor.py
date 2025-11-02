@@ -1,5 +1,6 @@
 """HTTP-based remote execution with async support"""
 
+import asyncio
 import httpx
 from typing import Any, Optional
 
@@ -50,48 +51,93 @@ class HTTPExecutor:
         - function_based: POST /call with {"method": "...", "args": [...], "kwargs": {...}}
         - http_based: POST /{method_name} with direct kwargs
         """
-        try:
-            if self.env_type == EnvType.FUNCTION_BASED:
-                # Generic endpoint for function-based
-                logger.debug(f"Calling function-based method: {method_name}")
-                response = await self.client.post(
-                    f"{self.base_url}/call",
-                    json={
-                        "method": method_name,
-                        "args": list(args),
-                        "kwargs": kwargs
-                    }
-                )
-            else:  # HTTP_BASED
-                # Direct endpoint for http-based
-                logger.debug(f"Calling http-based endpoint: /{method_name}")
-                response = await self.client.post(
-                    f"{self.base_url}/{method_name}",
-                    json=kwargs
-                )
-            
-            response.raise_for_status()
-            data = response.json()
-            
-            # Parse response
-            if isinstance(data, dict):
-                if "status" in data:
-                    # MethodResponse format (function_based)
-                    if data["status"] != "success":
-                        raise ExecutionError(f"Remote execution failed: {data}")
-                    return data.get("result")
-                else:
-                    # Direct result (http_based)
-                    return data
-            else:
-                return data
+        max_retries = 2
+        retry_delay = 2  # seconds
+
+        for attempt in range(max_retries):
+            try:
+                if self.env_type == EnvType.FUNCTION_BASED:
+                    # Generic endpoint for function-based
+                    logger.debug(f"Calling function-based method: {method_name} (attempt {attempt + 1}/{max_retries})")
+                    response = await self.client.post(
+                        f"{self.base_url}/call",
+                        json={
+                            "method": method_name,
+                            "args": list(args),
+                            "kwargs": kwargs
+                        }
+                    )
+                else:  # HTTP_BASED
+                    # Direct endpoint for http-based
+                    logger.debug(f"Calling http-based endpoint: /{method_name} (attempt {attempt + 1}/{max_retries})")
+                    response = await self.client.post(
+                        f"{self.base_url}/{method_name}",
+                        json=kwargs
+                    )
                 
-        except httpx.HTTPStatusError as e:
-            raise ExecutionError(
-                f"HTTP {e.response.status_code}: {e.response.text}"
-            )
-        except Exception as e:
-            raise ExecutionError(f"Failed to call method '{method_name}': {e}")
+                response.raise_for_status()
+                data = response.json()
+                
+                # Parse response
+                if isinstance(data, dict):
+                    if "status" in data:
+                        # MethodResponse format (function_based)
+                        if data["status"] != "success":
+                            raise ExecutionError(f"Remote execution failed: {data}")
+                        return data.get("result")
+                    else:
+                        # Direct result (http_based)
+                        return data
+                else:
+                    return data
+                    
+            except (httpx.ConnectError, httpx.RemoteProtocolError, httpx.ReadTimeout) as e:
+                # Connection errors may indicate container was restarted due to OOM
+                if attempt < max_retries - 1:
+                    logger.warning(
+                        f"Connection failed for method '{method_name}' (attempt {attempt + 1}/{max_retries}): {e}. "
+                        f"Container may have been restarted due to OOM. Retrying in {retry_delay}s..."
+                    )
+                    await asyncio.sleep(retry_delay)
+                    # Wait for container to be ready after restart
+                    if not await self._wait_for_reconnect(timeout=30):
+                        logger.error(f"Container did not become ready after restart within 30s")
+                    continue
+                else:
+                    raise ExecutionError(
+                        f"Failed to call method '{method_name}' after {max_retries} attempts: "
+                        f"All connection attempts failed"
+                    )
+            except httpx.HTTPStatusError as e:
+                raise ExecutionError(
+                    f"HTTP {e.response.status_code}: {e.response.text}"
+                )
+            except Exception as e:
+                raise ExecutionError(f"Failed to call method '{method_name}': {e}")
+    
+    async def _wait_for_reconnect(self, timeout: int = 30) -> bool:
+        """
+        Wait for container to be ready after restart (async)
+        
+        Args:
+            timeout: Maximum seconds to wait
+            
+        Returns:
+            True if container is ready, False otherwise
+        """
+        import time
+        start = time.time()
+        
+        while time.time() - start < timeout:
+            try:
+                if await self.health_check():
+                    logger.info("Container reconnected successfully after restart")
+                    return True
+            except Exception:
+                pass
+            await asyncio.sleep(1)
+        
+        return False
     
     async def list_methods(self) -> list:
         """List available methods with detailed information (async)"""

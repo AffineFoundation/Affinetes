@@ -1,24 +1,22 @@
-import random
-import asyncio
 import logging
 import os
 import json
+import random
 import aiohttp
 from botocore.config import Config
 from aiobotocore.session import get_session
-from collections import deque
-from typing import Any, Deque, List, Optional, Dict
+from typing import Any, Optional, Dict, List
 
 # R2 Storage Configuration
-FOLDER  = os.getenv("R2_FOLDER", "affine")
-BUCKET  = os.getenv("R2_BUCKET_ID", "00523074f51300584834607253cae0fa")
-ACCESS  = os.getenv("R2_WRITE_ACCESS_KEY_ID", "")
-SECRET  = os.getenv("R2_WRITE_SECRET_ACCESS_KEY", "")
+FOLDER = os.getenv("R2_FOLDER", "affine")
+BUCKET = os.getenv("R2_BUCKET_ID", "00523074f51300584834607253cae0fa")
+ACCESS = os.getenv("R2_WRITE_ACCESS_KEY_ID", "")
+SECRET = os.getenv("R2_WRITE_SECRET_ACCESS_KEY", "")
 ENDPOINT = f"https://{BUCKET}.r2.cloudflarestorage.com"
 
 # Public read configuration
 PUBLIC_READ = os.getenv("R2_PUBLIC_READ", "true").lower() == "true"
-R2_PUBLIC_BASE = os.getenv("R2_PUBLIC_BASE", f"https://pub-bf429ea7a5694b99adaf3d444cbbe64d.r2.dev")
+R2_PUBLIC_BASE = os.getenv("R2_PUBLIC_BASE", "https://pub-bf429ea7a5694b99adaf3d444cbbe64d.r2.dev")
 
 # Logger
 logger = logging.getLogger("affine")
@@ -27,156 +25,184 @@ logger = logging.getLogger("affine")
 _http_client: Optional[aiohttp.ClientSession] = None
 
 
-async def _get_client() -> aiohttp.ClientSession:
+async def _get_http_client() -> aiohttp.ClientSession:
     """Get or create shared HTTP client session"""
     global _http_client
     if _http_client is None or _http_client.closed:
-        timeout = aiohttp.ClientTimeout(total=300, connect=60, sock_read=120)
-        connector = aiohttp.TCPConnector(limit=100, limit_per_host=30, ttl_dns_cache=300)
-        _http_client = aiohttp.ClientSession(
-            timeout=timeout,
-            connector=connector
-        )
+        _http_client = aiohttp.ClientSession()
     return _http_client
 
-class R2BufferedDataset:
+
+class R2Dataset:
+    """
+    Simple R2 dataset with true random sampling.
+    
+    Each call to get() randomly selects a file from the dataset,
+    then randomly selects a sample from that file.
+    """
+    
     def __init__(
         self,
         dataset_name: str,
-        total_size: int = 0,
-        buffer_size: int = 100,
-        max_batch: int = 10,
         seed: Optional[int] = None,
     ):
-        self.dataset_name   = dataset_name
-        self.buffer_size    = buffer_size
-        self.max_batch      = max_batch
-        self._rng           = random.Random(seed)
-
-        short_name          = dataset_name
-        self._dataset_folder= f"affine/datasets/{short_name}/"
-        self._index_key     = self._dataset_folder + "index.json"
-
-        self._folder        = FOLDER
-        bucket_id           = BUCKET
-        endpoint            = ENDPOINT
-        access_key          = ACCESS
-        secret_key          = SECRET
-
-        self._endpoint_url  = endpoint
-        self._access_key    = access_key
-        self._secret_key    = secret_key
-        self._public_read   = PUBLIC_READ
-        self._public_base   = R2_PUBLIC_BASE
-
-        self._buffer: Deque[Any] = deque()
-        self._lock   = asyncio.Lock()
-        self._fill_task = None
-
+        """
+        Initialize R2 dataset.
+        
+        Args:
+            dataset_name: Name of the dataset (e.g., "satpalsr/rl-python")
+            seed: Random seed for reproducibility (optional)
+        """
+        self.dataset_name = dataset_name
+        self._rng = random.Random(seed)
+        
+        # Build dataset paths
+        self._dataset_folder = f"affine/datasets/{dataset_name}/"
+        self._index_key = self._dataset_folder + "index.json"
+        
+        # R2 credentials
+        self._endpoint_url = ENDPOINT
+        self._access_key = ACCESS
+        self._secret_key = SECRET
+        self._public_read = PUBLIC_READ
+        self._public_base = R2_PUBLIC_BASE
+        
+        # Dataset metadata (loaded lazily)
         self._index: Optional[Dict[str, Any]] = None
-        self._files: list[Dict[str, Any]] = []
-        self._next_file_index: int = 0
-        self.total_size = total_size
-
-    def _client_ctx(self):
+        self._files: List[Dict[str, Any]] = []
+        self.total_size: int = 0
+    
+    def _get_s3_client(self):
+        """Create S3 client context for private R2 access"""
         if not self._endpoint_url:
             raise RuntimeError("R2 endpoint is not configured (missing R2_BUCKET_ID)")
-        sess = get_session()
-        return sess.create_client(
+        
+        session = get_session()
+        return session.create_client(
             "s3",
             endpoint_url=self._endpoint_url,
             aws_access_key_id=self._access_key,
             aws_secret_access_key=self._secret_key,
             config=Config(max_pool_connections=256),
         )
-
-    async def _ensure_index(self) -> None:
+    
+    async def _load_index(self) -> None:
+        """Load dataset index from R2"""
         if self._index is not None:
             return
-        if self._public_read:
-            url = f"{self._public_base}/{self._index_key}"
-            sess = await _get_client()
-            logger.debug(f"Loading public R2 index: {url}")
-            async with sess.get(url, timeout=aiohttp.ClientTimeout(total=120)) as resp:
-                resp.raise_for_status()
-                self._index = await resp.json()
-        else:
-            logger.debug(f"Loading R2 index: s3://{self._folder}/{self._index_key}")
-            async with self._client_ctx() as c:
-                resp = await c.get_object(Bucket=self._folder, Key=self._index_key)
-                body = await resp["Body"].read()
-                self._index = json.loads(body.decode())
-        self._files = list(self._index.get("files", []))
-        if not self.total_size:
+        
+        try:
+            if self._public_read:
+                url = f"{self._public_base}/{self._index_key}"
+                logger.debug(f"Loading public R2 index: {url}")
+                
+                client = await _get_http_client()
+                async with client.get(url, timeout=aiohttp.ClientTimeout(total=30)) as resp:
+                    resp.raise_for_status()
+                    self._index = await resp.json()
+            else:
+                logger.debug(f"Loading R2 index: s3://{FOLDER}/{self._index_key}")
+                
+                async with self._get_s3_client() as s3:
+                    resp = await s3.get_object(Bucket=FOLDER, Key=self._index_key)
+                    body = await resp["Body"].read()
+                    self._index = json.loads(body.decode())
+            
+            # Extract file list and metadata
+            self._files = list(self._index.get("files", []))
             self.total_size = int(self._index.get("total_rows", 0))
-        if not self._files:
-            raise RuntimeError("R2 index contains no files")
-        self._next_file_index = 0
-
-    async def _read_next_file(self) -> list[Any]:
-        await self._ensure_index()
-        if not self._files:
-            return []
-        if self._next_file_index >= len(self._files):
-            self._next_file_index = 0
-        file_info = self._files[self._next_file_index]
-        self._next_file_index += 1
+            
+            if not self._files:
+                raise RuntimeError(f"Dataset '{self.dataset_name}' contains no files")
+            
+            logger.info(f"Loaded dataset '{self.dataset_name}': {len(self._files)} files, {self.total_size} total samples")
+            
+        except Exception as e:
+            logger.error(f"Failed to load dataset index: {e}")
+            raise RuntimeError(f"Failed to load dataset '{self.dataset_name}': {e}") from e
+    
+    async def _read_file(self, file_info: Dict[str, Any]) -> List[Any]:
+        """
+        Read a single data file from R2.
+        
+        Args:
+            file_info: File metadata dictionary
+            
+        Returns:
+            List of samples from the file
+        """
+        # Determine file key
         key = file_info.get("key") or (self._dataset_folder + file_info.get("filename", ""))
         if not key:
+            logger.warning(f"Invalid file info: {file_info}")
             return []
-        if self._public_read:
-            url = f"{self._public_base}/{key}"
-            logger.debug(f"Downloading public R2 chunk: {url}")
-            sess = await _get_client()
-            async with sess.get(url, timeout=aiohttp.ClientTimeout(total=300)) as resp:
-                resp.raise_for_status()
-                body = await resp.read()
-        else:
-            logger.debug(f"Downloading R2 chunk: s3://{self._folder}/{key}")
-            async with self._client_ctx() as c:
-                resp = await c.get_object(Bucket=self._folder, Key=key)
-                body = await resp["Body"].read()
+        
         try:
-            data = json.loads(body.decode())
-        except Exception as e:
-            logger.warning(f"Failed to parse chunk {key}: {e!r}")
-            return []
-        if not isinstance(data, list):
-            return []
-        return data
-
-    async def _fill_buffer(self) -> None:
-        logger.debug("Starting R2 buffer fill")
-        while len(self._buffer) < self.buffer_size:
-            rows = await self._read_next_file()
-            if not rows:
-                break
-            if self.max_batch and len(rows) > self.max_batch:
-                start = self._rng.randint(0, max(0, len(rows) - self.max_batch))
-                rows = rows[start:start + self.max_batch]
-            for item in rows:
-                self._buffer.append(item)
-        logger.debug("R2 buffer fill complete")
-
-    async def get(self) -> Any:
-        async with self._lock:
-            if not self._fill_task or self._fill_task.done():
-                self._fill_task = asyncio.create_task(self._fill_buffer())
-            if not self._buffer:
-                await self._fill_task
-            # Random sampling from buffer instead of sequential popleft
-            if self._buffer:
-                idx = self._rng.randint(0, len(self._buffer) - 1)
-                item = self._buffer[idx]
-                del self._buffer[idx]
+            if self._public_read:
+                url = f"{self._public_base}/{key}"
+                logger.debug(f"Downloading public R2 file: {url}")
+                
+                client = await _get_http_client()
+                async with client.get(url, timeout=aiohttp.ClientTimeout(total=100)) as resp:
+                    resp.raise_for_status()
+                    body = await resp.read()
             else:
-                raise RuntimeError("Buffer is empty after fill")
-            if self._fill_task.done():
-                self._fill_task = asyncio.create_task(self._fill_buffer())
-            return item
-
+                logger.debug(f"Downloading R2 file: s3://{FOLDER}/{key}")
+                
+                async with self._get_s3_client() as s3:
+                    resp = await s3.get_object(Bucket=FOLDER, Key=key)
+                    body = await resp["Body"].read()
+            
+            # Parse JSON data
+            data = json.loads(body.decode())
+            
+            if not isinstance(data, list):
+                logger.warning(f"File {key} does not contain a list")
+                return []
+            
+            return data
+            
+        except Exception as e:
+            logger.warning(f"Failed to read file {key}: {e}")
+            return []
+    
+    async def get(self) -> Any:
+        """
+        Get a random sample from the dataset.
+        
+        Returns:
+            A randomly selected sample
+            
+        Raises:
+            RuntimeError: If dataset is empty or cannot be loaded
+        """
+        # Ensure index is loaded
+        await self._load_index()
+        
+        if not self._files:
+            raise RuntimeError(f"Dataset '{self.dataset_name}' is empty")
+        
+        # Randomly select a file
+        file_info = self._rng.choice(self._files)
+        
+        # Load file contents
+        samples = await self._read_file(file_info)
+        
+        if not samples:
+            # Retry with another file if this one is empty
+            logger.warning(f"Selected file is empty, retrying...")
+            return await self.get()
+        
+        # Randomly select a sample from the file
+        sample = self._rng.choice(samples)
+        
+        logger.debug(f"Retrieved random sample from dataset '{self.dataset_name}'")
+        return sample
+    
     def __aiter__(self):
+        """Support async iteration"""
         return self
-
-    async def __anext__(self):
+    
+    async def __anext__(self) -> Any:
+        """Get next random sample"""
         return await self.get()
