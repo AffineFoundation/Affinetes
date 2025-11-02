@@ -231,79 +231,59 @@ class LocalBackend(AbstractBackend):
     def _ensure_docker_network(self) -> str:
         """Get the network name that affinetes container is connected to
         
-        Strategy:
-        1. Find which network(s) the affinetes container is currently in
-        2. Return the first network found (prefer non-default networks)
-        3. Never create new networks - always use existing ones
-        
-        This ensures environment containers join the SAME network as affinetes,
-        regardless of what network name the user specified.
+        Strategy: Parse container ID from mountinfo using regex pattern matching
+        This works for all Docker environments and is resilient to path changes.
         """
-        import socket
+        import re
         
         try:
-            # Find current affinetes container
-            hostname = socket.gethostname()
-            current_container = None
+            # Regex pattern to match 64-character hex container IDs in mountinfo
+            # Matches IDs in paths like:
+            # - /var/lib/docker/containers/<id>/...
+            # - /docker/containers/<id>/...
+            # - Any other path containing containers/<id>/
+            container_id_pattern = re.compile(r'/containers/([0-9a-f]{64})/')
             
-            # Method 1: Try hostname directly
-            try:
-                current_container = self._docker_manager.client.containers.get(hostname)
-                logger.debug(f"Found container by hostname: {hostname}")
-            except:
-                pass
-            
-            # Method 2: Search all running containers
-            if not current_container:
-                all_containers = self._docker_manager.client.containers.list()
-                for container in all_containers:
-                    if (container.name == hostname or
-                        container.short_id == hostname or
-                        container.id.startswith(hostname)):
-                        current_container = container
-                        logger.debug(f"Found container by search: {container.name}")
+            container_id = None
+            with open("/proc/self/mountinfo", "r") as f:
+                for line in f:
+                    match = container_id_pattern.search(line)
+                    if match:
+                        container_id = match.group(1)
+                        logger.debug(f"Found container ID from mountinfo: {container_id[:12]}...")
                         break
             
-            # Method 3: Parse container ID from cgroup
-            if not current_container:
-                try:
-                    with open("/proc/self/cgroup", "r") as f:
-                        for line in f:
-                            if "docker" in line:
-                                parts = line.strip().split("/")
-                                if len(parts) >= 3 and parts[-2] == "docker":
-                                    container_id = parts[-1]
-                                    current_container = self._docker_manager.client.containers.get(container_id)
-                                    logger.debug(f"Found container by cgroup: {container_id[:12]}")
-                                    break
-                except:
-                    pass
+            if not container_id:
+                logger.warning("Could not extract container ID from mountinfo")
+                return "bridge"
             
-            if current_container:
-                current_container.reload()
-                networks = current_container.attrs["NetworkSettings"]["Networks"]
-                network_names = list(networks.keys())
-                logger.info(f"Affinetes container '{current_container.name}' is in networks: {network_names}")
-                
-                # Strategy: Use the FIRST non-default network if exists
-                # Otherwise use the first network (even if it's bridge)
-                for net_name in network_names:
-                    if net_name not in ["host", "none"]:
-                        logger.info(f"Environment containers will use network: {net_name}")
-                        return net_name
-                
-                # Fallback: use first network regardless
-                if network_names:
-                    net_name = network_names[0]
-                    logger.info(f"Using first available network: {net_name}")
+            # Query Docker API with full container ID
+            current_container = self._docker_manager.client.containers.get(container_id)
+            logger.debug(f"Found container: {current_container.name}")
+            
+            # Extract network information
+            current_container.reload()
+            networks = current_container.attrs["NetworkSettings"]["Networks"]
+            network_names = list(networks.keys())
+            logger.info(f"Container '{current_container.name}' networks: {network_names}")
+            
+            # Return first non-default network, or first network if all are default
+            for net_name in network_names:
+                if net_name not in ["host", "none"]:
+                    logger.info(f"Environment containers will use network: {net_name}")
                     return net_name
             
+            if network_names:
+                logger.info(f"Using network: {network_names[0]}")
+                return network_names[0]
+            
+        except FileNotFoundError:
+            logger.warning("Not running in Docker (mountinfo not found)")
         except Exception as e:
-            logger.warning(f"Failed to detect affinetes container network: {e}")
+            logger.warning(f"Failed to detect network: {e}")
         
-        # Ultimate fallback: use default bridge network
-        # This happens when affinetes is NOT running in Docker
-        logger.warning("Could not detect affinetes container, using default bridge network")
+        # Fallback when not running in Docker
+        logger.warning("Using default bridge network")
         return "bridge"
     
     def _get_env_type(self) -> str:
