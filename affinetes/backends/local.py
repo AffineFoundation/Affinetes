@@ -203,34 +203,11 @@ class LocalBackend(AbstractBackend):
             raise BackendError(f"Failed to start container: {e}")
     
     def _is_running_in_docker(self) -> bool:
-        """Check if affinetes itself is running inside a Docker container"""
-        import os
-        
-        # Method 1: Check for .dockerenv file
-        if os.path.exists("/.dockerenv"):
+        p1 = open("/proc/1/comm").read().strip().lower()
+        if p1 not in ("systemd", "init"):
             return True
-        
-        # Method 2: Check cgroup (most reliable)
-        try:
-            with open("/proc/1/cgroup", "r") as f:
-                content = f.read()
-                # Docker containers have /docker/ in cgroup paths
-                if "/docker/" in content or "/kubepods/" in content:
-                    return True
-        except (FileNotFoundError, PermissionError):
-            pass
-        
-        # Method 3: Check for container-specific mount info
-        try:
-            with open("/proc/self/mountinfo", "r") as f:
-                content = f.read()
-                if "/docker/" in content or "overlay" in content:
-                    return True
-        except (FileNotFoundError, PermissionError):
-            pass
-        
         return False
-    
+
     def _ensure_docker_network(self) -> str:
         """Get the network name that affinetes container is connected to
         
