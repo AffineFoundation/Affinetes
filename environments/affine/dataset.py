@@ -23,7 +23,7 @@ R2_PUBLIC_BASE = os.getenv("R2_PUBLIC_BASE", "https://pub-bf429ea7a5694b99adaf3d
 
 # Cache configuration
 CACHE_DIR = os.getenv("DATASET_CACHE_DIR", "/tmp/dataset_cache")
-DOWNLOAD_CONCURRENCY = int(os.getenv("DOWNLOAD_CONCURRENCY", "2"))
+DOWNLOAD_CONCURRENCY = int(os.getenv("DOWNLOAD_CONCURRENCY", "1"))
 
 # Logger
 logger = logging.getLogger("affine")
@@ -90,10 +90,6 @@ class R2Dataset:
         self._files: List[Dict[str, Any]] = []
         self.total_size: int = 0
         
-        # Download state
-        self._download_task: Optional[asyncio.Task] = None
-        self._ready = False
-        
         # Start background initialization
         self._init_task = asyncio.create_task(self._async_init())
         logger.info(f"Started background initialization for dataset '{self.dataset_name}'")
@@ -117,11 +113,9 @@ class R2Dataset:
         try:
             await self._load_index()
             await self._download_all_files()
-            self._ready = True
             logger.info(f"Dataset '{self.dataset_name}' initialization complete")
         except Exception as e:
             logger.error(f"Background initialization failed: {e}")
-            self._ready = False
     
     async def _load_index(self) -> None:
         """Load dataset index from R2"""
@@ -159,8 +153,12 @@ class R2Dataset:
             raise RuntimeError(f"Failed to load dataset '{self.dataset_name}': {e}") from e
     
     async def _download_all_files(self) -> None:
-        """Background task to download all files to local cache"""
+        """Background task to download all files to local cache in random order"""
         logger.info(f"Starting download of all {len(self._files)} files for dataset '{self.dataset_name}'")
+        
+        # Shuffle files for random download order
+        shuffled_files = self._files.copy()
+        self._rng.shuffle(shuffled_files)
         
         # Download files in batches with concurrency control
         semaphore = asyncio.Semaphore(self._download_concurrency)
@@ -169,7 +167,7 @@ class R2Dataset:
             async with semaphore:
                 return await self._download_and_cache_file(file_info)
         
-        tasks = [download_with_semaphore(file_info) for file_info in self._files]
+        tasks = [download_with_semaphore(file_info) for file_info in shuffled_files]
         results = await asyncio.gather(*tasks, return_exceptions=True)
         
         # Count successful downloads
@@ -211,7 +209,7 @@ class R2Dataset:
                 if self._public_read:
                     url = f"{self._public_base}/{key}"
                     client = await _get_http_client()
-                    async with client.get(url, timeout=aiohttp.ClientTimeout(total=300)) as resp:
+                    async with client.get(url, timeout=aiohttp.ClientTimeout(total=120)) as resp:
                         resp.raise_for_status()
                         body = await resp.read()
                 else:
@@ -289,33 +287,6 @@ class R2Dataset:
             logger.warning(f"Failed to read from cache {cache_path}: {e}")
             return None
     
-    def is_ready(self) -> bool:
-        """Check if dataset is ready for sampling"""
-        return self._ready
-    
-    async def wait_ready(self, timeout: Optional[float] = None) -> bool:
-        """
-        Wait for dataset to be ready.
-        
-        Args:
-            timeout: Maximum time to wait in seconds (None = wait forever)
-            
-        Returns:
-            True if ready, False if timeout
-        """
-        if self.is_ready():
-            return True
-        
-        if self._init_task is None:
-            return False
-        
-        try:
-            await asyncio.wait_for(self._init_task, timeout=timeout)
-            return True
-        except asyncio.TimeoutError:
-            logger.warning(f"Timeout waiting for dataset '{self.dataset_name}' to be ready")
-            return False
-    
     async def get(self) -> Any:
         """
         Get a random sample from the local cache.
@@ -324,20 +295,28 @@ class R2Dataset:
             A randomly selected sample from cached files
             
         Raises:
-            RuntimeError: If dataset is not ready or no cached files available
+            RuntimeError: If no cached files available after retries
         """
-        # Wait for download to complete
-        if not self.is_ready():
-            logger.info(f"Dataset '{self.dataset_name}' not ready, waiting for download to complete...")
-            ready = await self.wait_ready(timeout=300)
-            if not ready:
-                raise RuntimeError(f"Dataset '{self.dataset_name}' failed to initialize within timeout")
+        # Retry mechanism: check for cached files, sleep 5s and retry up to 3 times
+        max_retries = 3
+        retry_delay = 5
         
-        # Get all cached files
-        cached_files = self._get_cached_files()
-        
-        if not cached_files:
-            raise RuntimeError(f"No cached files available for dataset '{self.dataset_name}'")
+        for attempt in range(max_retries):
+            cached_files = self._get_cached_files()
+            
+            if cached_files:
+                break
+            
+            if attempt < max_retries - 1:
+                logger.warning(
+                    f"No cached files found for dataset '{self.dataset_name}' "
+                    f"(attempt {attempt + 1}/{max_retries}), waiting {retry_delay}s..."
+                )
+                await asyncio.sleep(retry_delay)
+            else:
+                raise RuntimeError(
+                    f"No cached files available for dataset '{self.dataset_name}' after {max_retries} retries"
+                )
         
         # Randomly select a cached file
         selected_file = Path(self._rng.choice(cached_files))

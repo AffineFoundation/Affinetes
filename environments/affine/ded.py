@@ -37,15 +37,16 @@ def _normalize(text: str) -> str:
 class DEDTask:
     """DED (Direct Execution Debug) task - Python program generation from requirements"""
     
-    def __init__(self, dataset_name: str = "satpalsr/rl-python"):
+    def __init__(self, dataset=None, dataset_name: str = "satpalsr/rl-python"):
         """
         Initialize DED task.
         
         Args:
-            dataset_name: Name of the R2 dataset to use
+            dataset: Optional pre-initialized R2Dataset instance to use
+            dataset_name: Name of the R2 dataset to use (only if dataset not provided)
         """
         self._executor = ProgramExecutor()
-        self._dataset = R2Dataset(dataset_name=dataset_name)
+        self._dataset = dataset if dataset is not None else R2Dataset(dataset_name=dataset_name)
 
     async def generate(self) -> Challenge:
         """Generate a coding challenge from R2 dataset"""

@@ -21,6 +21,7 @@ RUN chmod -R 777 /app/_affinetes
 # Expose HTTP port
 EXPOSE 8000
 
-# Start server with 4 workers for high concurrency
+# Start server with configurable workers (default: 2)
+# Set UVICORN_WORKERS environment variable to override
 WORKDIR /app
-CMD ["python", "-m", "uvicorn", "_affinetes.server:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "4"]
+CMD sh -c "python -m uvicorn _affinetes.server:app --host 0.0.0.0 --port 8000 --workers ${UVICORN_WORKERS:-2}"

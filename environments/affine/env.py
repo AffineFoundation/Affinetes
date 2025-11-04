@@ -15,6 +15,10 @@ if '/app' not in sys.path:
 from sat import SATTask
 from abd import ABDTask
 from ded import DEDTask
+from dataset import R2Dataset
+
+# Global R2Dataset instance - created on module import to trigger background download
+_global_dataset = R2Dataset(dataset_name="satpalsr/rl-python")
 
 class Actor:
     """Multi-task evaluation actor"""
@@ -101,8 +105,11 @@ class Actor:
         if not task_cls:
             raise ValueError(f"Unknown task: {task_type}. Available: {list(self.TASKS.keys())}")
         
-        # Initialize task instance (all tasks now use instance methods)
-        task_instance = task_cls()
+        # Initialize task instance, passing global dataset if task supports it
+        if task_type in ("abd", "ded"):
+            task_instance = task_cls(dataset=_global_dataset)
+        else:
+            task_instance = task_cls()
         
         start = time.time()
         details = []
