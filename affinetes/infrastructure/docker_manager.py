@@ -37,24 +37,24 @@ class DockerManager:
     def pull_image(self, image: str, quiet: bool = False) -> None:
         """
         Pull Docker image from registry
-        
+
         Args:
             image: Image name with tag (e.g., "affine:latest")
             quiet: Suppress pull output
-            
+
         Raises:
-            ContainerError: If pull fails
+            ContainerError: If pull fails AND image doesn't exist locally
         """
         try:
             logger.info(f"Pulling image '{image}' from registry")
-            
+
             # Parse image name and tag
             if ":" in image:
                 repository, tag = image.rsplit(":", 1)
             else:
                 repository = image
                 tag = "latest"
-            
+
             # Pull image
             for line in self.client.api.pull(repository, tag=tag, stream=True, decode=True):
                 if not quiet:
@@ -62,13 +62,40 @@ class DockerManager:
                         logger.debug(f"Pull {image}: {line['status']}")
                     if "error" in line:
                         raise ContainerError(f"Pull failed: {line['error']}")
-            
+
             logger.info(f"Successfully pulled image '{image}'")
-            
+
         except docker.errors.APIError as e:
-            raise ContainerError(f"Failed to pull image '{image}': {e}")
+            # Pull failed - check if image exists locally
+            logger.warning(f"Failed to pull image '{image}': {e}")
+            self._fallback_to_local_image(image)
         except Exception as e:
-            raise ContainerError(f"Error pulling image '{image}': {e}")
+            # Pull failed - check if image exists locally
+            logger.warning(f"Error pulling image '{image}': {e}")
+            self._fallback_to_local_image(image)
+
+    def _fallback_to_local_image(self, image: str) -> None:
+        """
+        Check if image exists locally when pull fails
+
+        Args:
+            image: Image name with tag
+
+        Raises:
+            ContainerError: If image doesn't exist locally
+        """
+        try:
+            self.client.images.get(image)
+            logger.info(f"Image '{image}' exists locally, continuing with local version")
+        except docker.errors.ImageNotFound:
+            raise ContainerError(
+                f"Failed to pull image '{image}' and it doesn't exist locally. "
+                "Please check network connection or build the image first."
+            )
+        except Exception as e:
+            raise ContainerError(
+                f"Failed to pull image '{image}' and couldn't verify local existence: {e}"
+            )
     
     def get_existing_container(self, name: str) -> Optional[Any]:
         """
