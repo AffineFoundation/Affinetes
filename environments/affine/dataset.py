@@ -2,7 +2,10 @@ import logging
 import os
 import json
 import random
+import asyncio
 import aiohttp
+import fcntl
+from pathlib import Path
 from botocore.config import Config
 from aiobotocore.session import get_session
 from typing import Any, Optional, Dict, List
@@ -17,6 +20,10 @@ ENDPOINT = f"https://{BUCKET}.r2.cloudflarestorage.com"
 # Public read configuration
 PUBLIC_READ = os.getenv("R2_PUBLIC_READ", "true").lower() == "true"
 R2_PUBLIC_BASE = os.getenv("R2_PUBLIC_BASE", "https://pub-bf429ea7a5694b99adaf3d444cbbe64d.r2.dev")
+
+# Cache configuration
+CACHE_DIR = os.getenv("DATASET_CACHE_DIR", "/tmp/dataset_cache")
+DOWNLOAD_CONCURRENCY = int(os.getenv("DOWNLOAD_CONCURRENCY", "2"))
 
 # Logger
 logger = logging.getLogger("affine")
@@ -35,29 +42,37 @@ async def _get_http_client() -> aiohttp.ClientSession:
 
 class R2Dataset:
     """
-    Simple R2 dataset with true random sampling.
+    R2 dataset with background download and local-only sampling.
     
-    Each call to get() randomly selects a file from the dataset,
-    then randomly selects a sample from that file.
+    Features:
+    - Background download of all files to local cache
+    - Sampling only from local cache (no real-time downloads)
+    - Automatic retry on download failures
     """
     
     def __init__(
         self,
         dataset_name: str,
         seed: Optional[int] = None,
-        max_retries: int = 10,
+        cache_dir: Optional[str] = None,
+        download_concurrency: int = DOWNLOAD_CONCURRENCY,
     ):
         """
-        Initialize R2 dataset.
+        Initialize R2 dataset with background downloading.
         
         Args:
             dataset_name: Name of the dataset (e.g., "satpalsr/rl-python")
             seed: Random seed for reproducibility (optional)
-            max_retries: Maximum number of retries when encountering empty files (default: 10)
+            cache_dir: Directory for local cache (default: /tmp/dataset_cache)
+            download_concurrency: Number of concurrent downloads (default: 10)
         """
         self.dataset_name = dataset_name
         self._rng = random.Random(seed)
-        self._max_retries = max_retries
+        self._download_concurrency = download_concurrency
+        
+        # Cache configuration
+        self._cache_dir = Path(cache_dir or CACHE_DIR) / dataset_name.replace("/", "_")
+        self._cache_dir.mkdir(parents=True, exist_ok=True)
         
         # Build dataset paths
         self._dataset_folder = f"affine/datasets/{dataset_name}/"
@@ -70,10 +85,18 @@ class R2Dataset:
         self._public_read = PUBLIC_READ
         self._public_base = R2_PUBLIC_BASE
         
-        # Dataset metadata (loaded lazily)
+        # Dataset metadata
         self._index: Optional[Dict[str, Any]] = None
         self._files: List[Dict[str, Any]] = []
         self.total_size: int = 0
+        
+        # Download state
+        self._download_task: Optional[asyncio.Task] = None
+        self._ready = False
+        
+        # Start background initialization
+        self._init_task = asyncio.create_task(self._async_init())
+        logger.info(f"Started background initialization for dataset '{self.dataset_name}'")
     
     def _get_s3_client(self):
         """Create S3 client context for private R2 access"""
@@ -88,6 +111,17 @@ class R2Dataset:
             aws_secret_access_key=self._secret_key,
             config=Config(max_pool_connections=256),
         )
+    
+    async def _async_init(self) -> None:
+        """Background initialization: load index and download all files"""
+        try:
+            await self._load_index()
+            await self._download_all_files()
+            self._ready = True
+            logger.info(f"Dataset '{self.dataset_name}' initialization complete")
+        except Exception as e:
+            logger.error(f"Background initialization failed: {e}")
+            self._ready = False
     
     async def _load_index(self) -> None:
         """Load dataset index from R2"""
@@ -124,96 +158,200 @@ class R2Dataset:
             logger.error(f"Failed to load dataset index: {e}")
             raise RuntimeError(f"Failed to load dataset '{self.dataset_name}': {e}") from e
     
-    async def _read_file(self, file_info: Dict[str, Any]) -> List[Any]:
-        """
-        Read a single data file from R2.
+    async def _download_all_files(self) -> None:
+        """Background task to download all files to local cache"""
+        logger.info(f"Starting download of all {len(self._files)} files for dataset '{self.dataset_name}'")
         
-        Args:
-            file_info: File metadata dictionary
-            
-        Returns:
-            List of samples from the file
-        """
-        # Determine file key
+        # Download files in batches with concurrency control
+        semaphore = asyncio.Semaphore(self._download_concurrency)
+        
+        async def download_with_semaphore(file_info):
+            async with semaphore:
+                return await self._download_and_cache_file(file_info)
+        
+        tasks = [download_with_semaphore(file_info) for file_info in self._files]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        
+        # Count successful downloads
+        success_count = sum(1 for r in results if r and not isinstance(r, Exception))
+        
+        logger.info(
+            f"Download completed: {success_count}/{len(self._files)} files cached for dataset '{self.dataset_name}'"
+        )
+    
+    async def _download_and_cache_file(self, file_info: Dict[str, Any]) -> bool:
+        """Download a file and save it to local cache with file locking"""
         key = file_info.get("key") or (self._dataset_folder + file_info.get("filename", ""))
         if not key:
-            logger.warning(f"Invalid file info: {file_info}")
+            return False
+        
+        cache_path = self._get_cache_path(key)
+        lock_path = cache_path.with_suffix(".lock")
+        
+        # Skip if already cached
+        if cache_path.exists():
+            logger.debug(f"File already cached: {key}")
+            return True
+        
+        # Use file lock to prevent concurrent downloads across processes
+        try:
+            lock_path.parent.mkdir(parents=True, exist_ok=True)
+            lock_file = open(lock_path, 'w')
+            
+            try:
+                # Try to acquire exclusive lock (non-blocking)
+                fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                
+                # Double-check file doesn't exist (race condition)
+                if cache_path.exists():
+                    logger.debug(f"File already cached (after lock): {key}")
+                    return True
+                
+                # Download file
+                if self._public_read:
+                    url = f"{self._public_base}/{key}"
+                    client = await _get_http_client()
+                    async with client.get(url, timeout=aiohttp.ClientTimeout(total=300)) as resp:
+                        resp.raise_for_status()
+                        body = await resp.read()
+                else:
+                    async with self._get_s3_client() as s3:
+                        resp = await s3.get_object(Bucket=FOLDER, Key=key)
+                        body = await resp["Body"].read()
+                
+                # Validate JSON
+                data = json.loads(body.decode())
+                if not isinstance(data, list) or not data:
+                    logger.warning(f"Skipping invalid/empty file: {key}")
+                    return False
+                
+                # Write to cache atomically
+                temp_path = cache_path.with_suffix(".tmp")
+                temp_path.write_bytes(body)
+                temp_path.rename(cache_path)
+                
+                logger.debug(f"Cached file: {key} ({len(data)} samples)")
+                return True
+                
+            except BlockingIOError:
+                # Another process is downloading this file, wait for it
+                logger.debug(f"File {key} is being downloaded by another process, waiting...")
+                fcntl.flock(lock_file.fileno(), fcntl.LOCK_SH)
+                
+                # Check if download succeeded
+                if cache_path.exists():
+                    logger.debug(f"File {key} downloaded by another process")
+                    return True
+                else:
+                    logger.warning(f"File {key} download failed in another process")
+                    return False
+                    
+            finally:
+                fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+                lock_file.close()
+                
+                # Clean up lock file
+                try:
+                    lock_path.unlink()
+                except:
+                    pass
+                    
+        except Exception as e:
+            logger.warning(f"Failed to download file {key}: {type(e).__name__}: {str(e)}")
+            return False
+    
+    def _get_cache_path(self, key: str) -> Path:
+        """Get local cache path for a file key"""
+        filename = key.split("/")[-1]
+        return self._cache_dir / filename
+    
+    def _get_cached_files(self) -> List[str]:
+        """Get list of cached file paths"""
+        if not self._cache_dir.exists():
             return []
+        return [str(f) for f in self._cache_dir.glob("*.json")]
+    
+    async def _read_from_cache(self, cache_path: Path) -> Optional[List[Any]]:
+        """Read file from local cache"""
+        if not cache_path.exists():
+            return None
         
         try:
-            if self._public_read:
-                url = f"{self._public_base}/{key}"
-                logger.debug(f"Downloading public R2 file: {url}")
-                
-                client = await _get_http_client()
-                async with client.get(url, timeout=aiohttp.ClientTimeout(total=100)) as resp:
-                    resp.raise_for_status()
-                    body = await resp.read()
-            else:
-                logger.debug(f"Downloading R2 file: s3://{FOLDER}/{key}")
-                
-                async with self._get_s3_client() as s3:
-                    resp = await s3.get_object(Bucket=FOLDER, Key=key)
-                    body = await resp["Body"].read()
-            
-            # Parse JSON data
+            body = cache_path.read_bytes()
             data = json.loads(body.decode())
             
             if not isinstance(data, list):
-                logger.warning(f"File {key} does not contain a list")
-                return []
+                return None
             
             return data
             
         except Exception as e:
-            logger.warning(f"Failed to read file {key}: {type(e).__name__}: {str(e)}")
-            return []
+            logger.warning(f"Failed to read from cache {cache_path}: {e}")
+            return None
     
-    async def get(self, _retry_count: int = 0) -> Any:
+    def is_ready(self) -> bool:
+        """Check if dataset is ready for sampling"""
+        return self._ready
+    
+    async def wait_ready(self, timeout: Optional[float] = None) -> bool:
         """
-        Get a random sample from the dataset.
+        Wait for dataset to be ready.
         
         Args:
-            _retry_count: Internal retry counter (do not set manually)
+            timeout: Maximum time to wait in seconds (None = wait forever)
+            
+        Returns:
+            True if ready, False if timeout
+        """
+        if self.is_ready():
+            return True
+        
+        if self._init_task is None:
+            return False
+        
+        try:
+            await asyncio.wait_for(self._init_task, timeout=timeout)
+            return True
+        except asyncio.TimeoutError:
+            logger.warning(f"Timeout waiting for dataset '{self.dataset_name}' to be ready")
+            return False
+    
+    async def get(self) -> Any:
+        """
+        Get a random sample from the local cache.
         
         Returns:
-            A randomly selected sample
+            A randomly selected sample from cached files
             
         Raises:
-            RuntimeError: If dataset is empty or cannot be loaded, or max retries exceeded
+            RuntimeError: If dataset is not ready or no cached files available
         """
-        # Ensure index is loaded
-        await self._load_index()
+        # Wait for download to complete
+        if not self.is_ready():
+            logger.info(f"Dataset '{self.dataset_name}' not ready, waiting for download to complete...")
+            ready = await self.wait_ready(timeout=300)
+            if not ready:
+                raise RuntimeError(f"Dataset '{self.dataset_name}' failed to initialize within timeout")
         
-        if not self._files:
-            raise RuntimeError(f"Dataset '{self.dataset_name}' is empty")
+        # Get all cached files
+        cached_files = self._get_cached_files()
         
-        # Randomly select a file
-        file_info = self._rng.choice(self._files)
-        file_key = file_info.get("key") or (self._dataset_folder + file_info.get("filename", ""))
+        if not cached_files:
+            raise RuntimeError(f"No cached files available for dataset '{self.dataset_name}'")
+        
+        # Randomly select a cached file
+        selected_file = Path(self._rng.choice(cached_files))
         
         # Load file contents
-        samples = await self._read_file(file_info)
+        samples = await self._read_from_cache(selected_file)
         
         if not samples:
-            # Check retry limit
-            if _retry_count >= self._max_retries:
-                raise RuntimeError(
-                    f"Failed to read valid file after {self._max_retries} retries. "
-                    f"Last attempted file: {file_key}"
-                )
-            
-            # Retry with another file if this one is empty
-            logger.warning(
-                f"Selected file '{file_key}' is empty, retrying... "
-                f"({_retry_count + 1}/{self._max_retries})"
-            )
-            return await self.get(_retry_count=_retry_count + 1)
+            raise RuntimeError(f"Failed to read cached file: {selected_file}")
         
         # Randomly select a sample from the file
         sample = self._rng.choice(samples)
         
-        logger.debug(f"Retrieved random sample from dataset '{self.dataset_name}' (file: {file_key})")
+        logger.debug(f"Retrieved random sample from dataset '{self.dataset_name}' (file: {selected_file.name})")
         return sample
     
     def __aiter__(self):
