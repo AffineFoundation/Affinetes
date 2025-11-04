@@ -45,6 +45,7 @@ class R2Dataset:
         self,
         dataset_name: str,
         seed: Optional[int] = None,
+        max_retries: int = 10,
     ):
         """
         Initialize R2 dataset.
@@ -52,9 +53,11 @@ class R2Dataset:
         Args:
             dataset_name: Name of the dataset (e.g., "satpalsr/rl-python")
             seed: Random seed for reproducibility (optional)
+            max_retries: Maximum number of retries when encountering empty files (default: 10)
         """
         self.dataset_name = dataset_name
         self._rng = random.Random(seed)
+        self._max_retries = max_retries
         
         # Build dataset paths
         self._dataset_folder = f"affine/datasets/{dataset_name}/"
@@ -163,18 +166,21 @@ class R2Dataset:
             return data
             
         except Exception as e:
-            logger.warning(f"Failed to read file {key}: {e}")
+            logger.warning(f"Failed to read file {key}: {type(e).__name__}: {str(e)}")
             return []
     
-    async def get(self) -> Any:
+    async def get(self, _retry_count: int = 0) -> Any:
         """
         Get a random sample from the dataset.
+        
+        Args:
+            _retry_count: Internal retry counter (do not set manually)
         
         Returns:
             A randomly selected sample
             
         Raises:
-            RuntimeError: If dataset is empty or cannot be loaded
+            RuntimeError: If dataset is empty or cannot be loaded, or max retries exceeded
         """
         # Ensure index is loaded
         await self._load_index()
@@ -184,19 +190,30 @@ class R2Dataset:
         
         # Randomly select a file
         file_info = self._rng.choice(self._files)
+        file_key = file_info.get("key") or (self._dataset_folder + file_info.get("filename", ""))
         
         # Load file contents
         samples = await self._read_file(file_info)
         
         if not samples:
+            # Check retry limit
+            if _retry_count >= self._max_retries:
+                raise RuntimeError(
+                    f"Failed to read valid file after {self._max_retries} retries. "
+                    f"Last attempted file: {file_key}"
+                )
+            
             # Retry with another file if this one is empty
-            logger.warning(f"Selected file is empty, retrying...")
-            return await self.get()
+            logger.warning(
+                f"Selected file '{file_key}' is empty, retrying... "
+                f"({_retry_count + 1}/{self._max_retries})"
+            )
+            return await self.get(_retry_count=_retry_count + 1)
         
         # Randomly select a sample from the file
         sample = self._rng.choice(samples)
         
-        logger.debug(f"Retrieved random sample from dataset '{self.dataset_name}'")
+        logger.debug(f"Retrieved random sample from dataset '{self.dataset_name}' (file: {file_key})")
         return sample
     
     def __aiter__(self):
