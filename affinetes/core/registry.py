@@ -104,6 +104,13 @@ class EnvironmentRegistry:
             for env_id in env_ids:
                 try:
                     env = self._environments[env_id]
+                    
+                    # Check if backend has auto_cleanup enabled
+                    auto_cleanup = getattr(env._backend, '_auto_cleanup', True)
+                    if not auto_cleanup:
+                        logger.debug(f"Skipping cleanup for '{env_id}' (auto_cleanup=False)")
+                        continue
+                    
                     logger.debug(f"Cleaning up environment '{env_id}'")
                     
                     # Handle async cleanup properly

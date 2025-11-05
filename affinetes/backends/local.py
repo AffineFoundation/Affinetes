@@ -36,6 +36,7 @@ class LocalBackend(AbstractBackend):
         force_recreate: bool = False,
         pull: bool = False,
         mem_limit: Optional[str] = None,
+        auto_cleanup: bool = True,
         **docker_kwargs
     ):
         """
@@ -50,6 +51,8 @@ class LocalBackend(AbstractBackend):
             force_recreate: If True, remove existing container and create new one
             pull: If True, pull image before starting container
             mem_limit: Memory limit (e.g., "512m", "1g", "2g")
+            auto_cleanup: If True, automatically stop and remove container on cleanup (default: True)
+                         If False, container will continue running after cleanup
             **docker_kwargs: Additional Docker container options
         """
         self.image = image
@@ -67,6 +70,7 @@ class LocalBackend(AbstractBackend):
         self._force_recreate = force_recreate
         self._pull = pull
         self._mem_limit = mem_limit
+        self._auto_cleanup = auto_cleanup
         
         # SSH tunnel for remote access
         self._is_remote = host and host.startswith("ssh://")
@@ -390,16 +394,3 @@ class LocalBackend(AbstractBackend):
         except Exception as e:
             logger.error(f"Failed to get container logs: {e}")
             return ""
-    
-    def __del__(self):
-        """Cleanup on deletion"""
-        # Run async cleanup in sync context
-        try:
-            loop = asyncio.get_event_loop()
-            if loop.is_running():
-                # If loop is running, schedule cleanup as a task
-                asyncio.create_task(self.cleanup())
-            else:
-                loop.run_until_complete(self.cleanup())
-        except Exception as e:
-            logger.warning(f"Error during async cleanup in __del__: {e}")

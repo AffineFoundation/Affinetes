@@ -97,6 +97,7 @@ def load_env(
     force_recreate: bool = False,
     pull: bool = False,
     mem_limit: Optional[str] = None,
+    cleanup: bool = True,
     **backend_kwargs
 ) -> EnvironmentWrapper:
     """
@@ -117,6 +118,8 @@ def load_env(
         force_recreate: If True, remove and recreate containers even if they exist (default: False)
         pull: If True, pull the image before deployment (default: False)
         mem_limit: Memory limit for container (e.g., "512m", "1g", "2g")
+        cleanup: If True, automatically stop and remove container on exit (default: True)
+                 If False, container will continue running after program exits
         **backend_kwargs: Additional backend-specific parameters
         
     Returns:
@@ -142,6 +145,9 @@ def load_env(
         ...     replicas=3,
         ...     hosts=["localhost", "ssh://user@host1", "ssh://user@host2"]
         ... )
+        
+        # Keep container running after exit (for debugging or long-term use)
+        >>> env = load_env(image="affine:latest", cleanup=False)
     """
     try:
         logger.debug(f"Loading '{image}' in {mode} mode (replicas={replicas})")
@@ -168,6 +174,7 @@ def load_env(
                 force_recreate=force_recreate,
                 pull=pull,
                 mem_limit=mem_limit,
+                cleanup=cleanup,
                 **backend_kwargs
             )
         
@@ -184,6 +191,7 @@ def load_env(
             force_recreate=force_recreate,
             pull=pull,
             mem_limit=mem_limit,
+            cleanup=cleanup,
             **backend_kwargs
         )
         
@@ -202,6 +210,7 @@ def _load_single_instance(
     force_recreate: bool = False,
     pull: bool = False,
     mem_limit: Optional[str] = None,
+    cleanup: bool = True,
     **backend_kwargs
 ) -> EnvironmentWrapper:
     """Load a single instance"""
@@ -217,6 +226,7 @@ def _load_single_instance(
             force_recreate=force_recreate,
             pull=pull,
             mem_limit=mem_limit,
+            auto_cleanup=cleanup,
             **backend_kwargs
         )
     elif mode == "basilica":
@@ -258,6 +268,7 @@ def _load_multi_instance(
     force_recreate: bool = False,
     pull: bool = False,
     mem_limit: Optional[str] = None,
+    cleanup: bool = True,
     **backend_kwargs
 ) -> EnvironmentWrapper:
     """Load multiple instances with load balancing"""
@@ -293,6 +304,7 @@ def _load_multi_instance(
                     force_recreate=force_recreate,
                     pull=pull,
                     mem_limit=mem_limit,
+                    cleanup=cleanup,
                     **backend_kwargs
                 )
                 for i in range(replicas)
@@ -348,6 +360,7 @@ async def _deploy_instance(
     force_recreate: bool = False,
     pull: bool = False,
     mem_limit: Optional[str] = None,
+    cleanup: bool = True,
     **backend_kwargs
 ) -> InstanceInfo:
     """Deploy a single instance (async)"""
@@ -371,6 +384,7 @@ async def _deploy_instance(
             force_recreate=force_recreate,
             pull=pull,
             mem_limit=mem_limit,
+            auto_cleanup=cleanup,
             **backend_kwargs
         )
     else:

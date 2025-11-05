@@ -252,32 +252,7 @@ class EnvironmentWrapper:
     def __enter__(self):
         """Context manager entry"""
         return self
-    
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        """Context manager exit - automatic cleanup"""
-        # Run async cleanup in sync context
-        try:
-            loop = asyncio.get_event_loop()
-            if loop.is_running():
-                asyncio.create_task(self.cleanup())
-            else:
-                loop.run_until_complete(self.cleanup())
-        except Exception as e:
-            logger.warning(f"Error during async cleanup in __exit__: {e}")
-    
-    def __del__(self):
-        """Cleanup on deletion"""
-        if self._is_ready:
-            # Run async cleanup in sync context
-            try:
-                loop = asyncio.get_event_loop()
-                if loop.is_running():
-                    asyncio.create_task(self.cleanup())
-                else:
-                    loop.run_until_complete(self.cleanup())
-            except Exception as e:
-                logger.warning(f"Error during async cleanup in __del__: {e}")
-    
+
     def get_stats(self) -> Optional[dict]:
         """
         Get statistics for multi-instance pools

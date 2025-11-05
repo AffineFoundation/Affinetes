@@ -64,23 +64,11 @@ async def main():
                 print(f"     Error: {detail['error'][:200]}...")
             
             if 'experiences' in detail:
-                exp = detail['experiences']
-                print(f"     Challenge: {exp['challenge'][:500]}...")
-                if exp['llm_response']:
-                    print(f"     Response: {exp['llm_response'][:500]}...")
-                else:
-                    print(f"     Response: None (LLM call failed)")
-        
+                print(f"     Challenge: {str(detail['experiences'])[:200]}...")
     except Exception as e:
         print(f"\n   ❌ Execution failed: {e}")
         import traceback
         traceback.print_exc()
-    
-    finally:
-        await env.cleanup()
-        print("   ✓ Environment cleaned up (container stopped)")
-
-    print("\n" + "=" * 60)
 
 
 if __name__ == "__main__":

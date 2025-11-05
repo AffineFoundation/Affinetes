@@ -162,6 +162,7 @@ af_env.load_env(
     force_recreate: bool = False,           # Force container recreation
     pull: bool = False,                     # Pull image before deployment
     mem_limit: str = None,                  # Memory limit (e.g., "512m", "1g", "2g")
+    cleanup: bool = True,                   # Auto cleanup container on exit
     **kwargs                                # Additional backend options
 ) -> EnvironmentWrapper
 ```
@@ -190,6 +191,12 @@ env = af_env.load_env(
     image="affine:latest",
     replicas=3,
     hosts=["localhost", "ssh://user@host1", "ssh://user@host2"]
+)
+
+# Keep container running for debugging
+env = af_env.load_env(
+    image="affine:latest",
+    cleanup=False  # Container persists after program exits
 )
 ```
 
@@ -483,6 +490,39 @@ env = af_env.load_env(
 # - Remote deployments (ensure image exists on remote host)
 # - Production updates (pull latest tag)
 # - Shared registries (sync image versions)
+```
+
+### Container Lifecycle Control
+
+```python
+# Default: Auto cleanup on exit
+env = af_env.load_env(image="affine:latest")
+# Container is stopped and removed when program exits
+
+# Keep container running (for debugging)
+env = af_env.load_env(
+    image="affine:latest",
+    cleanup=False
+)
+# Container continues running after program exits
+# Manually stop with: docker stop <container_name>
+
+# Use case 1: Debug environment after crash
+env = af_env.load_env(
+    image="affine:latest",
+    container_name="debug-env",
+    cleanup=False
+)
+# If program crashes, inspect container:
+# docker logs debug-env
+# docker exec -it debug-env /bin/bash
+
+# Use case 2: Long-running background service
+env = af_env.load_env(
+    image="service:latest",
+    cleanup=False
+)
+# Service stays running for external access
 ```
 
 ## Environment Types
