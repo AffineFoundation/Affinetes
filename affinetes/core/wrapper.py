@@ -252,6 +252,49 @@ class EnvironmentWrapper:
     def __enter__(self):
         """Context manager entry"""
         return self
+    
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        """
+        Context manager exit
+        
+        Performs cleanup if auto_cleanup is enabled.
+        Note: This is a synchronous method, so we need to handle async cleanup properly.
+        """
+        # Only cleanup if auto_cleanup is enabled
+        if hasattr(self._backend, '_auto_cleanup') and self._backend._auto_cleanup:
+            # Run async cleanup in a new event loop if needed
+            try:
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    # If loop is already running, schedule cleanup
+                    asyncio.create_task(self.cleanup())
+                else:
+                    # Run cleanup synchronously
+                    loop.run_until_complete(self.cleanup())
+            except RuntimeError:
+                # No event loop, create a new one
+                asyncio.run(self.cleanup())
+        return False
+    
+    def __del__(self):
+        """
+        Destructor - cleanup on garbage collection
+        
+        Only performs cleanup if auto_cleanup is enabled.
+        """
+        if hasattr(self, '_backend') and hasattr(self._backend, '_auto_cleanup'):
+            if self._backend._auto_cleanup and hasattr(self, '_is_ready') and self._is_ready:
+                try:
+                    # Try to cleanup, but don't fail if event loop is already closed
+                    try:
+                        loop = asyncio.get_event_loop()
+                        if not loop.is_closed():
+                            loop.run_until_complete(self.cleanup())
+                    except RuntimeError:
+                        # Event loop might be closed during shutdown
+                        pass
+                except Exception as e:
+                    logger.warning(f"Error during automatic cleanup in __del__: {e}")
 
     def get_stats(self) -> Optional[dict]:
         """

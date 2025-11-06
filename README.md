@@ -120,6 +120,304 @@ pip install -e .[dev]
 - Docker daemon running
 - For remote deployment: SSH access to remote Docker hosts
 
+## Command-Line Interface (CLI)
+
+Affinetes provides a powerful CLI tool (`afs`) for managing containerized environments without writing code.
+
+### Installation
+
+After installing the package, the `afs` command will be available:
+
+```bash
+pip install -e .
+afs --help
+```
+
+### Quick Start
+
+```bash
+# Start environment from image, CHUTES_API_KEY 
+afs run bignickeye/affine:v2 --env CHUTES_API_KEY=xxx
+
+# CHUTES_API_KEY: If it has already been set to an environment variable or .env, there is no need to specify it
+afs run bignickeye/affine:v2
+
+# Start from local directory (auto-build)
+afs run --dir environments/affine --env CHUTES_API_KEY=xxx
+
+
+# List running environments
+afs list
+
+# Call a method
+afs call affine-v2 evaluate --arg task_type=abd --arg num_samples=2
+
+# Inspect environment (show methods)
+afs inspect affine-v2
+
+# View logs
+afs logs affine-v2 --tail 50
+
+# Stop environment
+afs stop affine-v2
+```
+
+### CLI Commands
+
+#### `afs run` - Start Environment
+
+Start an environment container from an image or build from directory.
+
+**From Docker image:**
+```bash
+afs run IMAGE [OPTIONS]
+
+Options:
+  --name NAME              Container name (default: derived from image)
+  --env KEY=VALUE          Environment variable (can be repeated)
+  --no-cleanup             Keep container running after exit
+  --pull                   Pull image before starting
+  --mem-limit MEM          Memory limit (e.g., 512m, 1g, 2g)
+
+Examples:
+  afs run bignickeye/affine:v2 --env CHUTES_API_KEY=xxx
+  afs run affine:latest --name my-affine --mem-limit 1g
+  afs run affine:latest --no-cleanup  # Keep running for debugging
+```
+
+**From directory (auto-build):**
+```bash
+afs run --dir PATH [OPTIONS]
+
+Options:
+  --dir PATH               Build from environment directory
+  --tag TAG                Image tag (default: auto-generated)
+  --no-cache               Do not use cache when building
+  --env KEY=VALUE          Environment variable (can be repeated)
+  --no-cleanup             Keep container running after exit
+
+Examples:
+  afs run --dir environments/affine --tag affine:v2
+  afs run --dir ./my-env --env API_KEY=xxx --no-cache
+```
+
+#### `afs list` - List Environments
+
+List running environments managed by CLI.
+
+```bash
+afs list [OPTIONS]
+
+Options:
+  --all                    Show all containers including stopped
+  --json                   Output in JSON format
+
+Examples:
+  afs list
+  afs list --all
+  afs list --json
+```
+
+**Output:**
+```
+NAME        CONTAINER ID  IMAGE              STATUS   CREATED              AUTO CLEANUP
+affine-v2   a1b2c3d4e5f6  affine:v2          running  2024-01-15 10:30:15  yes
+custom-env  f6e5d4c3b2a1  custom:latest      running  2024-01-15 09:20:10  no
+```
+
+#### `afs call` - Call Method
+
+Execute a method on a running environment.
+
+```bash
+afs call NAME METHOD [OPTIONS]
+
+Options:
+  --arg KEY=VALUE          Method argument (can be repeated)
+  --json JSON_STRING       JSON string for complex arguments
+  --timeout SECONDS        Timeout in seconds (default: 300)
+
+Examples:
+  # Simple arguments
+  afs call affine-v2 evaluate --arg task_type=abd --arg num_samples=2
+  
+  # Complex JSON arguments
+  afs call affine-v2 evaluate --json '{"task_type": "sat", "num_samples": 5}'
+  
+  # With timeout
+  afs call affine-v2 evaluate --arg task_type=ded --timeout 600
+  
+  # Mix both (--json overrides --arg)
+  afs call my-env process --arg mode=fast --json '{"config": {"batch": 10}}'
+```
+
+**Argument Types:**
+- Simple values: `--arg key=value`
+- Numbers: `--arg count=10` (auto-parsed)
+- Booleans: `--arg enabled=true`
+- Complex: `--json '{"key": [1, 2, 3]}'`
+
+#### `afs inspect` - Inspect Environment
+
+Show environment details and available methods.
+
+```bash
+afs inspect NAME
+
+Example:
+  afs inspect affine-v2
+```
+
+**Output:**
+```
+============================================================
+Environment: affine-v2
+============================================================
+Container ID:  a1b2c3d4e5f6
+Image:         bignickeye/affine:v2
+Status:        running
+Created:       2024-01-15T10:30:15
+Auto cleanup:  enabled
+
+Environment Variables:
+  CHUTES_API_KEY = *** (masked)
+
+Available Methods:
+  - evaluate
+  - reset
+  - get_info
+
+Usage:
+  afs call affine-v2 <method> --arg key=value
+============================================================
+```
+
+#### `afs stop` - Stop Environment
+
+Stop and remove one or more environments.
+
+```bash
+afs stop NAME [NAME...]
+
+Examples:
+  afs stop affine-v2
+  afs stop env1 env2 env3
+```
+
+#### `afs logs` - View Logs
+
+View container logs.
+
+```bash
+afs logs NAME [OPTIONS]
+
+Options:
+  --tail N                 Number of lines to show (default: 100)
+  --follow, -f             Follow log output
+
+Examples:
+  afs logs affine-v2
+  afs logs affine-v2 --tail 50
+  afs logs affine-v2 --follow
+```
+
+### CLI State Management
+
+The CLI maintains persistent state in `~/.affinetes/state.json` to track containers across sessions:
+
+- **Cross-session tracking**: Containers started with `afs run` are tracked even after the CLI exits
+- **Automatic cleanup**: Containers with `auto_cleanup=true` are cleaned when stopped
+- **Manual management**: Use `afs list` and `afs stop` to manage long-running containers
+- **Sensitive data masking**: API keys and secrets are masked in state file and output
+
+**State file location:**
+```bash
+~/.affinetes/state.json
+```
+
+**State file format:**
+```json
+{
+  "affine-v2": {
+    "name": "affine-v2",
+    "container_id": "a1b2c3d4e5f6",
+    "image": "bignickeye/affine:v2",
+    "status": "running",
+    "created_at": "2024-01-15T10:30:15",
+    "auto_cleanup": true,
+    "env_vars": {
+      "CHUTES_API_KEY": "***"
+    }
+  }
+}
+```
+
+### CLI Workflow Examples
+
+**Development workflow:**
+```bash
+# 1. Build and start environment
+afs run --dir environments/affine --tag affine:dev --env CHUTES_API_KEY=xxx
+
+# 2. Test methods
+afs call affine-dev evaluate --arg task_type=abd --arg num_samples=1
+
+# 3. Check logs if needed
+afs logs affine-dev --tail 20
+
+# 4. Stop when done
+afs stop affine-dev
+```
+
+**Long-running service:**
+```bash
+# Start without auto-cleanup (keeps running)
+afs run affine:latest --no-cleanup --env API_KEY=xxx
+
+# Service continues running in background
+# Use from Python SDK:
+# env = af_env.load_env(image="affine:latest", container_name="affine-latest")
+
+# Stop when no longer needed
+afs stop affine-latest
+```
+
+**Production deployment:**
+```bash
+# Pull latest and start with memory limit
+afs run bignickeye/affine:latest \
+  --pull \
+  --mem-limit 2g \
+  --env CHUTES_API_KEY=xxx \
+  --name prod-affine
+
+# Monitor
+afs list
+afs logs prod-affine --follow
+```
+
+### CLI vs SDK
+
+| Feature | CLI (`afs`) | SDK (`affinetes`) |
+|---------|-------------|-------------------|
+| Use case | Quick testing, manual ops | Programmatic control |
+| State | Persistent across sessions | In-process only |
+| Syntax | Shell commands | Python async/await |
+| Flexibility | Fixed commands | Full programming |
+| Best for | DevOps, debugging | Production apps |
+
+**When to use CLI:**
+- Quick environment testing
+- Manual container management
+- DevOps scripts
+- Debugging issues
+
+**When to use SDK:**
+- Production applications
+- Complex workflows
+- Multi-instance deployments
+- Programmatic control
+
 ## API Reference
 
 ### `build_image_from_env()`
