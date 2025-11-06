@@ -127,17 +127,19 @@ def inject_evaluator_endpoint(app: FastAPI):
                 env_server_base = f"http://localhost:8000"
             if ENV_NAME == "lmrlgym":
                 env_server_base += f"/{TOOL_NAME}"
-            env_args = {
-                "env_server_base": env_server_base,
-                "data_len": request.data_len,
-                "timeout": request.timeout,
-            }
 
             # Generate random seed if not provided
             seed = request.seed
             if seed is None:
                 seed = random.randint(0, 2**32 - 1)
-            
+
+            env_args = {
+                "env_server_base": env_server_base,
+                "data_len": request.data_len,
+                "timeout": request.timeout,
+                "seed": seed,
+            }
+
             # Only validate API key for chutes.ai base URLs
             api_key = None
             if "chutes" in request.base_url.lower():

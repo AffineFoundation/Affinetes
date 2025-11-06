@@ -8,14 +8,7 @@ from typing import Optional, Dict, Any
 from dotenv import load_dotenv
 
 from ..utils.logger import logger
-from .commands import (
-    run_environment,
-    list_environments,
-    call_method,
-    inspect_environment,
-    stop_environment,
-    show_logs
-)
+from .commands import run_environment, call_method
 
 load_dotenv(override=True)
 
@@ -32,22 +25,10 @@ Examples:
   afs run bignickeye/affine:v2 --env CHUTES_API_KEY=xxx
   
   # Start from directory (auto build)
-  afs run --dir environments/affine --tag affine:v2 --env CHUTES_API_KEY=xxx
-  
-  # List running environments
-  afs list
+  afs run --dir environments/affine --tag affine:v2
   
   # Call method
   afs call affine-v2 evaluate --arg task_type=abd --arg num_samples=2
-  
-  # Inspect environment
-  afs inspect affine-v2
-  
-  # Stop environment
-  afs stop affine-v2
-  
-  # View logs
-  afs logs affine-v2 --tail 50
 """
     )
     
@@ -97,22 +78,6 @@ Examples:
         help='Do not use cache when building (only with --dir)'
     )
     
-    # === list command ===
-    list_parser = subparsers.add_parser(
-        'list',
-        help='List running environments'
-    )
-    list_parser.add_argument(
-        '--all',
-        action='store_true',
-        help='Show all containers including stopped ones'
-    )
-    list_parser.add_argument(
-        '--json',
-        action='store_true',
-        help='Output in JSON format'
-    )
-    
     # === call command ===
     call_parser = subparsers.add_parser(
         'call',
@@ -141,49 +106,6 @@ Examples:
         '--timeout',
         type=int,
         help='Timeout in seconds'
-    )
-    
-    # === inspect command ===
-    inspect_parser = subparsers.add_parser(
-        'inspect',
-        help='Show environment details and available methods'
-    )
-    inspect_parser.add_argument(
-        'name',
-        help='Environment/container name'
-    )
-    
-    # === stop command ===
-    stop_parser = subparsers.add_parser(
-        'stop',
-        help='Stop running environment(s)'
-    )
-    stop_parser.add_argument(
-        'names',
-        nargs='+',
-        help='Environment/container name(s)'
-    )
-    
-    # === logs command ===
-    logs_parser = subparsers.add_parser(
-        'logs',
-        help='View container logs'
-    )
-    logs_parser.add_argument(
-        'name',
-        help='Environment/container name'
-    )
-    logs_parser.add_argument(
-        '--tail',
-        type=int,
-        default=100,
-        help='Number of lines to show (default: 100)'
-    )
-    logs_parser.add_argument(
-        '--follow',
-        '-f',
-        action='store_true',
-        help='Follow log output'
     )
     
     return parser
@@ -262,12 +184,6 @@ def main():
                 no_cache=args.no_cache
             ))
         
-        elif args.command == 'list':
-            asyncio.run(list_environments(
-                show_all=args.all,
-                json_output=args.json
-            ))
-        
         elif args.command == 'call':
             method_args = parse_method_args(args.args, args.json_args)
             
@@ -276,19 +192,6 @@ def main():
                 method=args.method,
                 args=method_args,
                 timeout=args.timeout
-            ))
-        
-        elif args.command == 'inspect':
-            asyncio.run(inspect_environment(name=args.name))
-        
-        elif args.command == 'stop':
-            asyncio.run(stop_environment(names=args.names))
-        
-        elif args.command == 'logs':
-            asyncio.run(show_logs(
-                name=args.name,
-                tail=args.tail,
-                follow=args.follow
             ))
         
         else:

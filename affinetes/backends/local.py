@@ -28,7 +28,7 @@ class LocalBackend(AbstractBackend):
     
     def __init__(
         self,
-        image: str,
+        image: Optional[str] = None,
         host: Optional[str] = None,
         container_name: Optional[str] = None,
         env_vars: Optional[Dict[str, str]] = None,
@@ -37,15 +37,16 @@ class LocalBackend(AbstractBackend):
         pull: bool = False,
         mem_limit: Optional[str] = None,
         auto_cleanup: bool = True,
+        connect_only: bool = False,
         **docker_kwargs
     ):
         """
-        Initialize backend - starts Docker container
+        Initialize backend - starts Docker container or connects to existing one
         
         Args:
-            image: Docker image name
+            image: Docker image name (required unless connect_only=True)
             host: Docker daemon address (None/"localhost" for local, "ssh://user@host" for remote)
-            container_name: Optional container name
+            container_name: Container name (required if connect_only=True)
             env_vars: Environment variables to pass to container
             env_type_override: Override environment type detection
             force_recreate: If True, remove existing container and create new one
@@ -53,13 +54,24 @@ class LocalBackend(AbstractBackend):
             mem_limit: Memory limit (e.g., "512m", "1g", "2g")
             auto_cleanup: If True, automatically stop and remove container on cleanup (default: True)
                          If False, container will continue running after cleanup
+            connect_only: If True, only connect to existing container without creating new one
             **docker_kwargs: Additional Docker container options
         """
         self.image = image
         self.host = host
-        # Sanitize image name for container naming (remove / and :)
-        safe_image = image.split('/')[-1].replace(':', '-')
-        self.name = container_name or f"{safe_image}"
+        self._connect_only = connect_only
+        
+        # Validate parameters
+        if connect_only:
+            if not container_name:
+                raise ValueError("container_name is required when connect_only=True")
+            self.name = container_name
+        else:
+            if not image:
+                raise ValueError("image is required when connect_only=False")
+            # Sanitize image name for container naming (remove / and :)
+            safe_image = image.split('/')[-1].replace(':', '-')
+            self.name = container_name or f"{safe_image}"
         
         self._container = None
         self._docker_manager = None
@@ -76,8 +88,97 @@ class LocalBackend(AbstractBackend):
         self._is_remote = host and host.startswith("ssh://")
         self._ssh_tunnel_manager = None
         
-        # Start container with env vars
-        self._start_container(env_vars=env_vars, **docker_kwargs)
+        # Connect to existing container or start new one
+        if connect_only:
+            self._connect_to_container()
+        else:
+            self._start_container(env_vars=env_vars, **docker_kwargs)
+    
+    def _connect_to_container(self) -> None:
+        """Connect to existing Docker container without creating new one"""
+        try:
+            logger.debug(f"Connecting to existing container '{self.name}' on host '{self.host or 'localhost'}'")
+            
+            # Initialize Docker manager
+            self._docker_manager = DockerManager(host=self.host)
+            
+            # Get existing container
+            try:
+                self._container = self._docker_manager.client.containers.get(self.name)
+            except Exception as e:
+                raise BackendError(f"Container '{self.name}' not found: {e}")
+            
+            # Check container status
+            self._container.reload()
+            if self._container.status != 'running':
+                raise BackendError(f"Container '{self.name}' is not running (status: {self._container.status})")
+            
+            # Get environment type from container labels
+            if self._env_type_override:
+                self._env_type = self._env_type_override
+                logger.info(f"Environment type (manual): {self._env_type}")
+            else:
+                labels = self._container.labels or {}
+                self._env_type = labels.get("affinetes.env.type", EnvType.FUNCTION_BASED)
+                logger.info(f"Environment type (from container): {self._env_type}")
+            
+            # Determine access address (same logic as _start_container)
+            is_running_in_docker = self._is_running_in_docker()
+            
+            if self._is_remote:
+                # Remote: create SSH tunnel
+                container_ip = self._docker_manager.get_container_ip(self._container)
+                logger.debug("Remote connection detected, creating SSH tunnel")
+                self._ssh_tunnel_manager = SSHTunnelManager(self.host)
+                local_host, local_port = self._ssh_tunnel_manager.create_tunnel(
+                    remote_ip=container_ip,
+                    remote_port=8000
+                )
+                logger.info(f"Accessing via SSH tunnel: {local_host}:{local_port}")
+            elif is_running_in_docker:
+                # DinD: use container name as hostname
+                local_host = self.name
+                local_port = 8000
+                logger.info(f"DinD detected, accessing via container name: {local_host}:{local_port}")
+            else:
+                # Local: use container IP
+                container_ip = self._docker_manager.get_container_ip(self._container)
+                local_host = container_ip
+                local_port = 8000
+                logger.info(f"Local connection, accessing via IP: {local_host}:{local_port}")
+            
+            # Create HTTP executor
+            self._http_executor = HTTPExecutor(
+                container_ip=local_host,
+                container_port=local_port,
+                env_type=self._env_type,
+                timeout=600
+            )
+            
+            # Verify HTTP server is ready
+            try:
+                loop = asyncio.get_event_loop()
+            except RuntimeError:
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+            
+            if not loop.run_until_complete(self._wait_for_http_ready(timeout=10)):
+                raise BackendError(
+                    f"HTTP server not responding. "
+                    f"Container '{self.name}' may not be ready or misconfigured."
+                )
+            
+            self._is_setup = True
+            logger.debug(f"Successfully connected to container '{self.name}'")
+            
+        except Exception as e:
+            # Cleanup on failure
+            if self._ssh_tunnel_manager:
+                try:
+                    self._ssh_tunnel_manager.cleanup()
+                except:
+                    pass
+            raise BackendError(f"Failed to connect to container: {e}")
     
     def _start_container(self, env_vars: Optional[Dict[str, str]] = None, **docker_kwargs) -> None:
         """Start Docker container with HTTP server

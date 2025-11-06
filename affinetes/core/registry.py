@@ -96,8 +96,6 @@ class EnvironmentRegistry:
             if not self._environments:
                 return
             
-            logger.info(f"Cleaning up {len(self._environments)} registered environments")
-            
             # Copy keys to avoid modification during iteration
             env_ids = list(self._environments.keys())
             

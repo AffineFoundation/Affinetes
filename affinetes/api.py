@@ -86,7 +86,7 @@ def build_image_from_env(
 
 
 def load_env(
-    image: str,
+    image: Optional[str] = None,
     mode: str = "docker",
     replicas: int = 1,
     hosts: Optional[List[str]] = None,
@@ -98,13 +98,15 @@ def load_env(
     pull: bool = False,
     mem_limit: Optional[str] = None,
     cleanup: bool = True,
+    connect_only: bool = False,
     **backend_kwargs
 ) -> EnvironmentWrapper:
     """
     Load and start an environment with multi-instance support
     
     Args:
-        image: Docker image name (for docker mode) or environment name (for basilica mode)
+        image: Docker image name (required unless connect_only=True)
+        connect_only: If True, connect to existing container instead of creating new one
         mode: Execution mode - "docker" or "basilica"
         replicas: Number of instances to deploy (default: 1)
         hosts: List of Docker daemon addresses for deployment
@@ -150,9 +152,18 @@ def load_env(
         >>> env = load_env(image="affine:latest", cleanup=False)
     """
     try:
-        logger.debug(f"Loading '{image}' in {mode} mode (replicas={replicas})")
-        
         # Validate parameters
+        if connect_only:
+            if not container_name:
+                raise ValidationError("container_name is required when connect_only=True")
+            if replicas != 1:
+                raise ValidationError("connect_only mode only supports single instance (replicas=1)")
+        else:
+            if not image:
+                raise ValidationError("image is required when connect_only=False")
+        
+        logger.debug(f"Loading '{image or container_name}' in {mode} mode (replicas={replicas}, connect_only={connect_only})")
+        
         if replicas < 1:
             raise ValidationError("replicas must be >= 1")
         
@@ -175,6 +186,7 @@ def load_env(
                 pull=pull,
                 mem_limit=mem_limit,
                 cleanup=cleanup,
+                connect_only=connect_only,
                 **backend_kwargs
             )
         
@@ -201,7 +213,7 @@ def load_env(
 
 
 def _load_single_instance(
-    image: str,
+    image: Optional[str],
     mode: str,
     host: Optional[str],
     container_name: Optional[str],
@@ -211,6 +223,7 @@ def _load_single_instance(
     pull: bool = False,
     mem_limit: Optional[str] = None,
     cleanup: bool = True,
+    connect_only: bool = False,
     **backend_kwargs
 ) -> EnvironmentWrapper:
     """Load a single instance"""
@@ -227,6 +240,7 @@ def _load_single_instance(
             pull=pull,
             mem_limit=mem_limit,
             auto_cleanup=cleanup,
+            connect_only=connect_only,
             **backend_kwargs
         )
     elif mode == "basilica":
