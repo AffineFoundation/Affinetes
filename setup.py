@@ -31,6 +31,10 @@ setup(
         "aiohttp>=3.8.0",
         "tabulate>=0.9.0",
         "pyyaml>=6.0",
+        "nest-asyncio>=1.5.0",
+        "httpx>=0.24.0",
+        "paramiko>=3.0.0",
+        "python-dotenv>=1.0.0",
     ],
     extras_require={
         "dev": [
