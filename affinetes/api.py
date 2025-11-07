@@ -329,10 +329,16 @@ def _load_multi_instance(
         
         logger.info(f"Successfully deployed {len(instances)} instances")
         
-        # Create instance pool
+        # Generate meaningful pool name based on image and container name
+        safe_image = image.split('/')[-1].replace(':', '-')
+        name_prefix = container_name or safe_image
+        pool_name = f"{name_prefix}-pool-{replicas}"
+        
+        # Create instance pool with custom name
         pool = InstancePool(
             instances=instances,
-            load_balance_strategy=load_balance
+            load_balance_strategy=load_balance,
+            pool_name=pool_name
         )
         
         # Create wrapper

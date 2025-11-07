@@ -16,7 +16,8 @@ class InstancePool:
     def __init__(
         self,
         instances: List[InstanceInfo],
-        load_balance_strategy: str = "random"
+        load_balance_strategy: str = "random",
+        pool_name: Optional[str] = None
     ):
         """
         Initialize instance pool
@@ -24,6 +25,7 @@ class InstancePool:
         Args:
             instances: List of InstanceInfo objects
             load_balance_strategy: Load balancing strategy ("random" or "round_robin")
+            pool_name: Optional custom pool name (auto-generated if not provided)
         """
         if not instances:
             raise BackendError("Cannot create InstancePool with empty instances list")
@@ -32,11 +34,17 @@ class InstancePool:
         self._load_balancer = LoadBalancer(strategy=load_balance_strategy)
         self._lock = asyncio.Lock()  # For thread-safe instance updates
         
-        # Pool metadata
-        self.name = f"pool-{len(instances)}-instances"
+        # Pool metadata - generate unique name if not provided
+        if pool_name:
+            self.name = pool_name
+        else:
+            # Generate unique name using timestamp to avoid collisions
+            import time
+            timestamp = int(time.time() * 1000)  # milliseconds for uniqueness
+            self.name = f"pool-{len(instances)}-{timestamp}"
         
         logger.info(
-            f"InstancePool created with {len(instances)} instances, "
+            f"InstancePool '{self.name}' created with {len(instances)} instances, "
             f"strategy: {load_balance_strategy}"
         )
         
