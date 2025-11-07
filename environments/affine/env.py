@@ -138,9 +138,9 @@ class Actor:
             "score": score,
             "success": score > 0,
             "time_taken": time.time() - start,
-            "seed": seed,
-            "details": {
-                "conversation": conversation
+            "extra": {
+                "conversation": conversation,
+                "seed": seed
             }
         }
         

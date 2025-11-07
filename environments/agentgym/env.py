@@ -40,8 +40,7 @@ class EvaluatorResponse(BaseModel):
     score: float
     success: bool
     time_taken: float
-    seed: Optional[int] = None
-    details: Dict[str, Any]
+    extra: Dict[str, Any]
     error: Optional[str] = None
 
 
@@ -213,13 +212,15 @@ def inject_evaluator_endpoint(app: FastAPI):
             
             # Return response
             env_name = os.environ.get("ENV_NAME")
+            # Add seed to extra (experiences)
+            if experiences and isinstance(experiences, dict):
+                experiences['seed'] = seed
             return EvaluatorResponse(
                 task_name=env_name,
                 score=score,
                 success=success,
                 time_taken=time_taken,
-                seed=seed,
-                details=experiences,
+                extra=experiences,
                 error=error
             )
             
