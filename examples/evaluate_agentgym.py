@@ -42,11 +42,10 @@ async def main():
     print(f"Reward: {result['score']:.3f}")
     print(f"Success: {result['success']}")
     print(f"Time: {result['time_taken']:.1f}s")
-    print(f"Seed: {result['seed']}")
 
-    if result.get('details'):
-        print(f"\nDetails:")
-        print(f"  {result['details']}")
+    if result.get('extra'):
+        print(f"\nextra:")
+        print(f"  {result['extra']}")
 
 if __name__ == "__main__":
     asyncio.run(main())

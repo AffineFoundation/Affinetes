@@ -235,4 +235,16 @@ class HTTPExecutor:
     
     async def close(self):
         """Close HTTP client (async)"""
-        await self.client.aclose()
+        try:
+            # Check if event loop is still running
+            loop = asyncio.get_event_loop()
+            if loop.is_closed():
+                # Event loop already closed, close client synchronously without await
+                # This happens during garbage collection after asyncio.run() completes
+                return
+            await self.client.aclose()
+        except RuntimeError as e:
+            # Event loop might be None or closed
+            if "Event loop is closed" not in str(e):
+                raise
+            # Silently ignore if event loop is closed

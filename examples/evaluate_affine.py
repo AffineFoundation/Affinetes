@@ -51,10 +51,9 @@ async def main():
         print(f"   Reward: {result['score']}")
         print(f"   Success: {result['success']}")
         print(f"   Time taken: {result['time_taken']:.2f}s")
-        print(f"   Seed: {result['seed']}")
-        if 'details' in result:
-            print(f"\n   details:")
-            print(f"     {result['details']}...")
+        if 'extra' in result:
+            print(f"\n   extra:")
+            print(f"     {result['extra']}...")
     except Exception as e:
         print(f"\n   ❌ Execution failed: {e}")
         import traceback

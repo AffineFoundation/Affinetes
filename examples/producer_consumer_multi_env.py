@@ -120,7 +120,7 @@ def create_env_configs():
     for env_name in AGENTGYM_ENVS:
         configs[f"agentgym:{env_name}"] = {
             "path": "environments/agentgym",
-            "image": f"bignickeye/agentgym:{env_name}",
+            "image": f"bignickeye/agentgym:{env_name}-v2",
             "replicas": agentgym_total,
             "hosts": agentgym_hosts.copy(),  # Use copy to avoid reference issues
             "buildargs": {"ENV_NAME": env_name},
