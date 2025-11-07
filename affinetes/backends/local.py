@@ -123,8 +123,6 @@ class LocalBackend(AbstractBackend):
                 logger.info(f"Environment type (from container): {self._env_type}")
             
             # Determine access address (same logic as _start_container)
-            is_running_in_docker = self._is_running_in_docker()
-            
             if self._is_remote:
                 # Remote: create SSH tunnel
                 container_ip = self._docker_manager.get_container_ip(self._container)
@@ -135,17 +133,20 @@ class LocalBackend(AbstractBackend):
                     remote_port=8000
                 )
                 logger.info(f"Accessing via SSH tunnel: {local_host}:{local_port}")
-            elif is_running_in_docker:
-                # DinD: use container name as hostname
-                local_host = self.name
-                local_port = 8000
-                logger.info(f"DinD detected, accessing via container name: {local_host}:{local_port}")
             else:
-                # Local: use container IP
-                container_ip = self._docker_manager.get_container_ip(self._container)
-                local_host = container_ip
-                local_port = 8000
-                logger.info(f"Local connection, accessing via IP: {local_host}:{local_port}")
+                # Local deployment: check if in DinD scenario
+                is_running_in_docker = self._is_running_in_docker()
+                if is_running_in_docker:
+                    # DinD: use container name as hostname
+                    local_host = self.name
+                    local_port = 8000
+                    logger.info(f"Local DinD detected, accessing via container name: {local_host}:{local_port}")
+                else:
+                    # Normal local: use container IP
+                    container_ip = self._docker_manager.get_container_ip(self._container)
+                    local_host = container_ip
+                    local_port = 8000
+                    logger.info(f"Local connection, accessing via IP: {local_host}:{local_port}")
             
             # Create HTTP executor
             self._http_executor = HTTPExecutor(
@@ -212,10 +213,6 @@ class LocalBackend(AbstractBackend):
                 else:
                     docker_kwargs["environment"] = env_vars
             
-            # Detect if running inside Docker (DinD scenario)
-            # This works for both local DinD and remote DinD scenarios
-            is_running_in_docker = self._is_running_in_docker()
-            
             # Prepare container configuration
             container_config = {
                 "image": self.image,
@@ -227,15 +224,17 @@ class LocalBackend(AbstractBackend):
                 **docker_kwargs
             }
             
-            # DinD network handling: Works for both local and remote DinD
-            # When affinetes runs in a container (local or remote), environment
-            # containers must join the same network for communication
-            if is_running_in_docker:
-                network_name = self._ensure_docker_network()
-                # Important: Set the network for the new environment container
-                # This ensures it joins the same network as affinetes container
-                container_config["network"] = network_name
-                logger.info(f"DinD detected, connecting environment container to network: {network_name}")
+            # Network handling: Only needed for local DinD deployment
+            # Remote deployment uses SSH tunnel, so no network configuration needed
+            if not self._is_remote:
+                # Local deployment: check if running inside Docker (DinD scenario)
+                is_running_in_docker = self._is_running_in_docker()
+                if is_running_in_docker:
+                    network_name = self._ensure_docker_network()
+                    # Set the network for the new environment container
+                    # This ensures it joins the same network as affinetes container
+                    container_config["network"] = network_name
+                    logger.info(f"Local DinD detected, connecting environment container to network: {network_name}")
             
             # Start container
             self._container = self._docker_manager.start_container(**container_config)
@@ -251,17 +250,20 @@ class LocalBackend(AbstractBackend):
                     remote_port=8000
                 )
                 logger.info(f"Accessing via SSH tunnel: {local_host}:{local_port}")
-            elif is_running_in_docker:
-                # DinD scenario: use container name as hostname
-                local_host = self.name
-                local_port = 8000
-                logger.info(f"DinD deployment, accessing via container name: {local_host}:{local_port}")
             else:
-                # Normal local deployment: use container IP
-                container_ip = self._docker_manager.get_container_ip(self._container)
-                local_host = container_ip
-                local_port = 8000
-                logger.info(f"Local deployment, accessing via IP: {local_host}:{local_port}")
+                # Local deployment: check if in DinD scenario
+                is_running_in_docker = self._is_running_in_docker()
+                if is_running_in_docker:
+                    # DinD scenario: use container name as hostname
+                    local_host = self.name
+                    local_port = 8000
+                    logger.info(f"Local DinD deployment, accessing via container name: {local_host}:{local_port}")
+                else:
+                    # Normal local deployment: use container IP
+                    container_ip = self._docker_manager.get_container_ip(self._container)
+                    local_host = container_ip
+                    local_port = 8000
+                    logger.info(f"Local deployment, accessing via IP: {local_host}:{local_port}")
             
             # Create HTTP executor with accessible address
             self._http_executor = HTTPExecutor(
@@ -343,14 +345,19 @@ class LocalBackend(AbstractBackend):
                 return "bridge"
             
             # Query Docker API with full container ID
-            current_container = self._docker_manager.client.containers.get(container_id)
-            logger.debug(f"Found container: {current_container.name}")
-            
-            # Extract network information
-            current_container.reload()
-            networks = current_container.attrs["NetworkSettings"]["Networks"]
-            network_names = list(networks.keys())
-            logger.info(f"Container '{current_container.name}' networks: {network_names}")
+            try:
+                current_container = self._docker_manager.client.containers.get(container_id)
+                logger.debug(f"Found container: {current_container.name}")
+                
+                # Extract network information
+                current_container.reload()
+                networks = current_container.attrs["NetworkSettings"]["Networks"]
+                network_names = list(networks.keys())
+                logger.info(f"Container '{current_container.name}' networks: {network_names}")
+            except Exception as container_err:
+                logger.debug(f"Container {container_id[:12]}... not found or inaccessible: {container_err}")
+                logger.info("Using default bridge network")
+                return "bridge"
             
             # Return first non-default network, or first network if all are default
             for net_name in network_names:
