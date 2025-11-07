@@ -100,7 +100,7 @@ def create_env_configs():
     """Create environment configurations with dynamic host allocation"""
 
     # Define replicas per host for each environment
-    affine_replicas_per_host = 2
+    affine_replicas_per_host = 1
     agentgym_replicas_per_host = 1
 
     # Generate hosts
@@ -205,7 +205,6 @@ def generate_task(task_id: int) -> Task:
         env_type = "affine"
         params = {
             "task_type": task_name,
-            "num_samples": 1,
             "model": "deepseek-ai/DeepSeek-V3.1",
             "base_url": "https://llm.chutes.ai/v1",
             "timeout": 120,
@@ -216,7 +215,7 @@ def generate_task(task_id: int) -> Task:
             "model": "deepseek-ai/DeepSeek-V3.1",
             "base_url": "https://llm.chutes.ai/v1",
             "temperature": 0.7,
-            "ids": [random.randint(0, 100)],
+            "task_id": random.randint(0, 100),
             "max_round": 10,
             "timeout": 200,
         }

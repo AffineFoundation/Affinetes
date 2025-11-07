@@ -46,3 +46,13 @@ class AbstractBackend(ABC):
             True if ready
         """
         pass
+    
+    @abstractmethod
+    async def health_check(self) -> bool:
+        """
+        Check if backend is healthy and responsive
+        
+        Returns:
+            True if healthy, False otherwise
+        """
+        pass

@@ -14,13 +14,10 @@ class InstanceInfo:
     host: str                       # "localhost" or IP address
     port: int                       # HTTP port
     backend: 'AbstractBackend'      # Backend instance
-    healthy: bool = True            # Health status
-    last_check: float = 0.0         # Last health check timestamp
     request_count: int = 0          # Total requests handled
     
     def __str__(self):
-        status = "healthy" if self.healthy else "unhealthy"
-        return f"{self.host}:{self.port} ({status})"
+        return f"{self.host}:{self.port}"
 
 
 class LoadBalancer:
@@ -50,7 +47,7 @@ class LoadBalancer:
     
     def select_instance(self, instances: List[InstanceInfo]) -> InstanceInfo:
         """
-        Select a healthy instance based on configured strategy
+        Select an instance based on configured strategy
         
         Args:
             instances: List of available instances
@@ -59,25 +56,19 @@ class LoadBalancer:
             Selected instance
             
         Raises:
-            BackendError: If no healthy instances available
+            BackendError: If no instances available
         """
-        # Filter healthy instances
-        healthy = [inst for inst in instances if inst.healthy]
-        
-        if not healthy:
-            raise BackendError(
-                "No healthy instances available. "
-                "All instances failed health check."
-            )
+        if not instances:
+            raise BackendError("No instances available")
         
         # Select based on strategy
         if self._strategy == self.STRATEGY_RANDOM:
-            selected = self._select_random(healthy)
+            selected = self._select_random(instances)
         elif self._strategy == self.STRATEGY_ROUND_ROBIN:
-            selected = self._select_round_robin(healthy)
+            selected = self._select_round_robin(instances)
         else:
             # Fallback to random
-            selected = self._select_random(healthy)
+            selected = self._select_random(instances)
         
         logger.debug(f"Selected instance: {selected}")
         return selected

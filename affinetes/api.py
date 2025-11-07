@@ -415,8 +415,6 @@ async def _deploy_instance(
         host=host_display,
         port=8000,  # Internal port (not exposed)
         backend=backend,
-        healthy=True,
-        last_check=time.time()
     )
     
     logger.debug(f"Instance {instance_id} deployed: {instance_info}")

@@ -32,7 +32,6 @@ class InstancePool:
         
         self._instances = instances
         self._load_balancer = LoadBalancer(strategy=load_balance_strategy)
-        self._lock = asyncio.Lock()  # For thread-safe instance updates
         
         # Pool metadata - generate unique name if not provided
         if pool_name:
@@ -72,32 +71,21 @@ class InstancePool:
         # Select instance using load balancer
         instance = self._load_balancer.select_instance(self._instances)
         
-        try:
-            logger.debug(
-                f"Routing '{method_name}' to instance {instance.host}:{instance.port}"
-            )
-            
-            # Call method on selected backend
-            result = await instance.backend.call_method(
-                method_name,
-                *args,
-                **kwargs
-            )
-            
-            # Update statistics
-            instance.request_count += 1
-            
-            return result
-            
-        except Exception as e:
-            logger.error(
-                f"Method '{method_name}' failed on instance {instance}: {e}"
-            )
-            # Mark instance as unhealthy
-            async with self._lock:
-                instance.healthy = False
-                instance.last_check = time.time()
-            raise
+        logger.debug(
+            f"Routing '{method_name}' to instance {instance.host}:{instance.port}"
+        )
+        
+        # Call method on selected backend
+        result = await instance.backend.call_method(
+            method_name,
+            *args,
+            **kwargs
+        )
+        
+        # Update statistics
+        instance.request_count += 1
+        
+        return result
     
     async def list_methods(self) -> list:
         """
@@ -136,17 +124,7 @@ class InstancePool:
         logger.info("Instance pool cleanup completed")
     
     def is_ready(self) -> bool:
-        """
-        Check if pool has at least one healthy instance
-        
-        Returns:
-            True if at least one instance is healthy
-        """
-        return any(inst.healthy for inst in self._instances)
-    
-    def get_healthy_count(self) -> int:
-        """Get number of healthy instances"""
-        return sum(1 for inst in self._instances if inst.healthy)
+        return True
     
     def get_total_count(self) -> int:
         """Get total number of instances"""
@@ -163,19 +141,15 @@ class InstancePool:
         Returns:
             Dictionary with pool statistics
         """
-        healthy_count = self.get_healthy_count()
         total_requests = sum(inst.request_count for inst in self._instances)
         
         return {
             "total_instances": len(self._instances),
-            "healthy_instances": healthy_count,
-            "unhealthy_instances": len(self._instances) - healthy_count,
             "total_requests": total_requests,
             "instances": [
                 {
                     "host": inst.host,
                     "port": inst.port,
-                    "healthy": inst.healthy,
                     "requests": inst.request_count,
                     "last_check": inst.last_check
                 }
@@ -184,7 +158,5 @@ class InstancePool:
         }
     
     def __repr__(self) -> str:
-        """String representation"""
-        healthy = self.get_healthy_count()
         total = self.get_total_count()
-        return f"<InstancePool {healthy}/{total} healthy instances>"
+        return f"<InstancePool {total} healthy instances>"

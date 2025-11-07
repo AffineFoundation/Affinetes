@@ -492,7 +492,6 @@ async def main():
     # Check pool statistics
     stats = env.get_stats()
     print(f"Total instances: {stats['total_instances']}")
-    print(f"Healthy instances: {stats['healthy_instances']}")
     
     # Execute concurrent tasks (automatically load balanced)
     tasks = [

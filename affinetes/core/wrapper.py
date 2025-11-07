@@ -306,13 +306,3 @@ class EnvironmentWrapper:
         if self._is_pool:
             return self._backend.get_stats()
         return None
-    
-    def __repr__(self) -> str:
-        """String representation"""
-        status = "ready" if self.is_ready() else "not ready"
-        if self._is_pool:
-            stats = self._backend.get_stats()
-            healthy = stats.get("healthy_instances", 0)
-            total = stats.get("total_instances", 0)
-            return f"<EnvironmentWrapper '{self.name}' (pool: {healthy}/{total} healthy, {status})>"
-        return f"<EnvironmentWrapper '{self.name}' ({status})>"

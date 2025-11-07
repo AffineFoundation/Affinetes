@@ -483,6 +483,31 @@ class LocalBackend(AbstractBackend):
         """
         return self._is_setup
     
+    async def health_check(self) -> bool:
+        """
+        Check if backend is healthy and responsive
+        
+        Returns:
+            True if healthy, False otherwise
+        """
+        if not self._is_setup or not self._http_executor:
+            return False
+        
+        try:
+            # Check if container is still running
+            if self._container:
+                self._container.reload()
+                if self._container.status != 'running':
+                    logger.warning(f"Container {self.name} is not running (status: {self._container.status})")
+                    return False
+            
+            # Check HTTP endpoint
+            return await self._http_executor.health_check()
+        
+        except Exception as e:
+            logger.debug(f"Health check failed for {self.name}: {e}")
+            return False
+    
     def get_container_logs(self, tail: int = 100) -> str:
         """
         Get container logs for debugging
