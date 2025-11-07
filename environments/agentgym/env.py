@@ -26,7 +26,7 @@ class EvaluatorRequest(BaseModel):
     max_tokens: int = None
     temperature: float = 0.7
     top_p: float = 1.0
-    ids: Optional[List[int]] = None
+    task_id: int  # Required task ID for agentgym tasks
     max_round: int = 10
     env_server_base: Optional[str] = "http://localhost:8000"
     data_len: int = 200
@@ -37,12 +37,12 @@ class EvaluatorRequest(BaseModel):
 
 class EvaluatorResponse(BaseModel):
     task_name: str
-    total_score: float
-    success_rate: float
-    num_evaluated: int
+    score: float
+    success: bool
     time_taken: float
     seed: Optional[int] = None
-    details: List[Dict[str, Any]]
+    details: Dict[str, Any]
+    error: Optional[str] = None
 
 
 def inject_health_endpoint(app: FastAPI):
@@ -174,11 +174,6 @@ def inject_evaluator_endpoint(app: FastAPI):
                 seed=seed,
             )
             
-            if request.ids:
-                data_idxs = request.ids
-            else:
-                data_idxs = list(range(min(request.data_len, 200)))
-
             loop = asyncio.get_event_loop()
             def create_evaluator():
                 """Create evaluator in thread to avoid blocking"""
@@ -187,65 +182,45 @@ def inject_evaluator_endpoint(app: FastAPI):
             evaluator = await loop.run_in_executor(None, create_evaluator)
             logger.info("Evaluator created successfully")
 
-            total_score = 0.0
-            total_success = 0.0
-            details = []
             start_time = time.time()
-            logger.info(f"data_idxs: {data_idxs}")
-            for data_idx in data_idxs:
-                try:
-                    exps = await loop.run_in_executor(
-                        None,
-                        partial(
-                            evaluator.eval,
-                            max_rounds=request.max_round,
-                            idxs=[data_idx]
-                        )
+            logger.info(f"Evaluating task_id: {request.task_id}")
+            
+            try:
+                exps = await loop.run_in_executor(
+                    None,
+                    partial(
+                        evaluator.eval,
+                        max_rounds=request.max_round,
+                        idxs=[request.task_id]
                     )
-                    
-                    reward = exps.score
-                    success = exps.success
-
-                    total_score += reward
-                    total_success += success
-                    
-                    details.append({
-                        "id": data_idx,
-                        "reward": reward,
-                        "success": success,
-                        "experiences": exps.experiences
-                    })
-                except Exception as e:
-                    logger.error(f"Error evaluating index {data_idx}: {e}")
-                    traceback.print_exc()
-                    details.append({
-                        "id": data_idx,
-                        "reward": 0.0,
-                        "success": False,
-                        "error": str(e)
-                    })
+                )
+                
+                score = exps.score
+                success = exps.success
+                experiences = vars(exps.experiences[0])
+                error = None
+                
+            except Exception as e:
+                logger.error(f"Error evaluating task_id {request.task_id}: {e}")
+                traceback.print_exc()
+                score = 0.0
+                success = False
+                experiences = {}
+                error = str(e)
             
-            # Calculate metrics
-            num_evaluated = len(details)
+            # Calculate time taken
             time_taken = time.time() - start_time
-            
-            if num_evaluated > 0:
-                avg_score = total_score / num_evaluated
-                success_rate = total_success / num_evaluated
-            else:
-                avg_score = 0.0
-                success_rate = 0.0
             
             # Return response
             env_name = os.environ.get("ENV_NAME")
             return EvaluatorResponse(
                 task_name=env_name,
-                total_score=avg_score,
-                success_rate=success_rate,
-                num_evaluated=num_evaluated,
+                score=score,
+                success=success,
                 time_taken=time_taken,
                 seed=seed,
-                details=details
+                details=experiences,
+                error=error
             )
             
         except ImportError as e:

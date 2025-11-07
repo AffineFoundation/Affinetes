@@ -6,14 +6,7 @@ from dotenv import load_dotenv
 load_dotenv(override=True)
 
 async def main():
-    agentgym_type = "webshop"
-    af_env.build_image_from_env(
-        env_path="environments/agentgym",
-        image_tag=f"agentgym:{agentgym_type}",
-        buildargs={
-            "ENV_NAME": agentgym_type
-        }
-    )
+    agentgym_type = "textcraft-v2"
 
     api_key = os.getenv("CHUTES_API_KEY")
     if not api_key:
@@ -23,9 +16,10 @@ async def main():
         sys.exit(1)
 
     env = af_env.load_env(
-        image=f"agentgym:{agentgym_type}",
+        image=f"bignickeye/agentgym:{agentgym_type}",
         mode="docker",
-        env_vars={"CHUTES_API_KEY": api_key}
+        env_vars={"CHUTES_API_KEY": api_key},
+        pull=True,
     )
 
     print("\nRunning evaluation...")
@@ -33,26 +27,26 @@ async def main():
         model="deepseek-ai/DeepSeek-V3",
         base_url="https://llm.chutes.ai/v1",
         temperature=0.7,
-        ids=[0],
+        task_id=10,
         max_round=10,
-        timeout=2400
+        timeout=600
     )
-    
+
+    if result.get('error'):
+        print(f"\nError occurred:")
+        print(f"  {result['error']}")
+        return
+
     print(f"\nResults:")
     print(f"Task: {result['task_name']}")
-    print(f"Total Score: {result['total_score']:.3f}")
-    print(f"Success Rate: {result['success_rate']:.3f}")
-    print(f"Evaluated: {result['num_evaluated']} samples")
+    print(f"Reward: {result['score']:.3f}")
+    print(f"Success: {result['success']}")
     print(f"Time: {result['time_taken']:.1f}s")
-    
-    # Show details
-    print(f"\nDetails:")
-    for detail in result['details']:
-        if 'error' in detail:
-            print(f"  Sample {detail['id']}: ERROR - {detail['error']}")
-        else:
-            print(f"  Sample {detail['id']}: reward={detail['reward']:.3f}, success={detail['success']}")
-            print(f"  Experiences {detail['experiences']}")
+    print(f"Seed: {result['seed']}")
+
+    if result.get('details'):
+        print(f"\nDetails:")
+        print(f"  {result['details']}")
 
 if __name__ == "__main__":
     asyncio.run(main())

@@ -12,13 +12,6 @@ async def main():
     print("Affinetes: Async Environment Execution Example")
     print("=" * 60)
 
-    image = af_env.build_image_from_env(
-        env_path="environments/affine",
-        image_tag="affine:latest",
-        nocache=False,
-        quiet=False
-    )
-
     api_key = os.getenv("CHUTES_API_KEY")
     if not api_key:
         print("\n   ❌ CHUTES_API_KEY environment variable not set")
@@ -29,9 +22,10 @@ async def main():
     print("\n1. Loading environment from pre-built image 'affine:latest'...")
     
     env = af_env.load_env(
-        image=image,
+        image="bignickeye/affine:v2",
         mode="docker",
-        env_vars={"CHUTES_API_KEY": api_key}
+        env_vars={"CHUTES_API_KEY": api_key},
+        pull=True
     )
     print("   ✓ Environment loaded (container started with HTTP server)")
 
@@ -43,28 +37,24 @@ async def main():
         result = await env.evaluate(
             task_type="abd",
             model="deepseek-ai/DeepSeek-V3",
-            base_url="https://llm.chutes.ai/v1",
-            num_samples=2
+            base_url="https://llm.chutes.ai/v1"
         )
         
-        print(f"\n4. Results:")
+        if 'error' in result:
+            print(f"\n   Error occurred:")
+            print(f"     Error type: {result.get('error_type', 'unknown')}")
+            print(f"     Error: {result['error'][:200]}...")
+            return
+
+        print(f"\nResults:")
         print(f"   Task: {result['task_name']}")
-        print(f"   Total score: {result['total_score']}")
-        print(f"   Success rate: {result['success_rate'] * 100:.1f}%")
+        print(f"   Reward: {result['score']}")
+        print(f"   Success: {result['success']}")
         print(f"   Time taken: {result['time_taken']:.2f}s")
-        
-        print(f"\n   Sample details:")
-        for detail in result['details']:
-            print(f"\n   Sample {detail['id']}:")
-            print(f"     Success: {detail['success']}")
-            print(f"     Reward: {detail['reward']}")
-            
-            if 'error' in detail:
-                print(f"     Error type: {detail.get('error_type', 'unknown')}")
-                print(f"     Error: {detail['error'][:200]}...")
-            
-            if 'experiences' in detail:
-                print(f"     Challenge: {str(detail['experiences'])[:200]}...")
+        print(f"   Seed: {result['seed']}")
+        if 'details' in result:
+            print(f"\n   details:")
+            print(f"     {result['details']}...")
     except Exception as e:
         print(f"\n   ❌ Execution failed: {e}")
         import traceback
