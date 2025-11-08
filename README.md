@@ -148,6 +148,78 @@ afs call affine-v2 evaluate --arg task_type=abd --arg num_samples=2
 
 ### CLI Commands
 
+#### `afs init` - Initialize Environment
+
+Create a new environment directory with template files.
+
+```bash
+afs init NAME [OPTIONS]
+
+Options:
+  --type TYPE              Environment type: function (default) or http
+  --template TEMPLATE      Template: basic, actor, or fastapi (default: basic)
+
+Examples:
+  # Create function-based environment with module functions
+  afs init environments/my-env
+  
+  # Create function-based environment with Actor class
+  afs init environments/my-env --template actor
+  
+  # Create HTTP-based environment with FastAPI
+  afs init environments/my-env --type http --template fastapi
+```
+
+**Output:**
+Creates a directory with:
+- `env.py` - Environment implementation
+- `Dockerfile` - Container configuration
+- `requirements.txt` - Python dependencies
+- `.env.example` - Environment variables template
+- `README.md` - Usage documentation
+
+**Next Steps:**
+After initialization:
+1. Edit `env.py` with your logic
+2. Add dependencies to `requirements.txt`
+3. Build image: `afs build my-env --tag my-env:latest`
+4. Run environment: `afs run my-env:latest`
+
+#### `afs build` - Build and Push Image
+
+Build environment image and optionally push to registry.
+
+```bash
+afs build ENV_DIR --tag TAG [OPTIONS]
+
+Options:
+  --tag TAG                Image tag (required, e.g., myimage:v1)
+  --push                   Push image to registry after build
+  --registry REGISTRY      Registry URL (e.g., docker.io/username)
+  --no-cache               Do not use cache when building
+  --quiet                  Suppress build output
+
+Examples:
+  # Build image locally
+  afs build environments/affine --tag affine:latest
+  
+  # Build and push to Docker Hub
+  afs build environments/affine --tag affine:v1 --push --registry docker.io/myuser
+  
+  # Build and push (tag already contains registry)
+  afs build environments/affine --tag myregistry.com/affine:v1 --push
+  
+  # Build without cache
+  afs build environments/affine --tag affine:latest --no-cache
+```
+
+**Behavior:**
+- Validates environment directory (requires `env.py` and `Dockerfile`)
+- Automatically detects environment type
+- For function-based: injects HTTP server
+- For HTTP-based: uses existing Dockerfile
+- Optionally pushes to container registry
+
 #### `afs run` - Start Environment
 
 Start a container and automatically display available methods.
@@ -256,13 +328,36 @@ docker stop affine-v2
 docker rm affine-v2
 ```
 
+### Complete CLI Workflow
+
+```bash
+# 1. Initialize new environment
+afs init my-task --template actor
+
+# 2. Edit environment code
+cd my-task
+# Edit env.py, requirements.txt, etc.
+
+# 3. Build image
+afs build . --tag my-task:v1
+
+# 4. Run environment
+afs run my-task:v1 --env API_KEY=xxx
+
+# 5. Call methods (from another terminal)
+afs call my-task-v1 process --arg data='{"test": 1}'
+
+# 6. Push to registry for sharing
+afs build . --tag my-task:v1 --push --registry docker.io/myuser
+```
+
 ### CLI vs SDK
 
 | Feature | CLI (`afs`) | SDK (`affinetes`) |
 |---------|-------------|-------------------|
 | Use case | Quick testing, cross-process | Programmatic control |
 | State | No state, Docker-native | In-process registry |
-| Commands | 2 commands (run, call) | Full API |
+| Commands | 4 commands (init, build, run, call) | Full API |
 | Reconnect | Auto-reconnect by name | Manual registry management |
 | Best for | Terminal workflows, debugging | Production apps, complex logic |
 

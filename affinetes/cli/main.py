@@ -8,7 +8,7 @@ from typing import Optional, Dict, Any
 from dotenv import load_dotenv
 
 from ..utils.logger import logger
-from .commands import run_environment, call_method
+from .commands import run_environment, call_method, build_and_push, init_environment
 
 load_dotenv(override=True)
 
@@ -76,6 +76,68 @@ Examples:
         '--no-cache',
         action='store_true',
         help='Do not use cache when building (only with --dir)'
+    )
+    
+    # === build command ===
+    build_parser = subparsers.add_parser(
+        'build',
+        help='Build and optionally push environment image'
+    )
+    build_parser.add_argument(
+        'env_dir',
+        help='Environment directory path'
+    )
+    build_parser.add_argument(
+        '--tag',
+        required=True,
+        help='Image tag (e.g., myimage:v1 or registry.io/myimage:v1)'
+    )
+    build_parser.add_argument(
+        '--push',
+        action='store_true',
+        help='Push image to registry after build'
+    )
+    build_parser.add_argument(
+        '--registry',
+        help='Registry URL (e.g., docker.io/username, ghcr.io/org)'
+    )
+    build_parser.add_argument(
+        '--no-cache',
+        action='store_true',
+        help='Do not use cache when building'
+    )
+    build_parser.add_argument(
+        '--quiet',
+        action='store_true',
+        help='Suppress build output'
+    )
+    build_parser.add_argument(
+        '--build-arg',
+        action='append',
+        dest='build_args',
+        help='Docker build arguments (format: KEY=VALUE, can be specified multiple times)'
+    )
+    
+    # === init command ===
+    init_parser = subparsers.add_parser(
+        'init',
+        help='Initialize a new environment directory'
+    )
+    init_parser.add_argument(
+        'name',
+        help='Environment name (will create directory with this name)'
+    )
+    init_parser.add_argument(
+        '--type',
+        choices=['function', 'http'],
+        default='function',
+        help='Environment type: function (default) or http'
+    )
+    init_parser.add_argument(
+        '--template',
+        choices=['basic', 'actor', 'fastapi'],
+        default='basic',
+        help='Template type: basic (module functions), actor (Actor class), or fastapi (HTTP-based)'
     )
     
     # === call command ===
@@ -183,6 +245,26 @@ def main():
                 mem_limit=args.mem_limit,
                 no_cache=args.no_cache
             ))
+        
+        elif args.command == 'build':
+            build_args = parse_env_vars(args.build_args)
+            
+            asyncio.run(build_and_push(
+                env_dir=args.env_dir,
+                tag=args.tag,
+                push=args.push,
+                registry=args.registry,
+                no_cache=args.no_cache,
+                quiet=args.quiet,
+                build_args=build_args
+            ))
+        
+        elif args.command == 'init':
+            init_environment(
+                name=args.name,
+                env_type=args.type,
+                template=args.template
+            )
         
         elif args.command == 'call':
             method_args = parse_method_args(args.args, args.json_args)

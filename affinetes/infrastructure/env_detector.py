@@ -44,46 +44,38 @@ class EnvDetector:
     @staticmethod
     def detect(env_path: str) -> EnvConfig:
         """
-        Detect environment type
+        Detect environment type by scanning all Python files
         
         Returns:
             EnvConfig with environment configuration
         """
         env_dir = Path(env_path).resolve()
         
-        # First check env.py - it could be either http_based or function_based
-        env_py = env_dir / "env.py"
-        if env_py.exists():
-            # Check if it's an HTTP server first
-            if EnvDetector._is_http_server(env_py):
-                logger.info("Detected HTTP server in env.py")
+        # Scan all Python files in the directory
+        py_files = list(env_dir.glob("*.py"))
+        
+        # Check each Python file for HTTP server or function-based patterns
+        for py_file in py_files:
+            # Check if it's an HTTP server (by content, not filename)
+            if EnvDetector._is_http_server(py_file):
+                logger.info(f"Detected HTTP server in {py_file.name}")
                 return EnvConfig(
                     env_type=EnvType.HTTP_BASED,
-                    server_file="env.py",
+                    server_file=py_file.name,
                     server_port=8000
                 )
-            # Otherwise check for Actor/function pattern
-            else:
-                has_actor, has_funcs = EnvDetector._parse_env_py(env_py)
-                if has_actor or has_funcs:
-                    logger.info("Detected function-based environment (Actor/functions in env.py)")
-                    return EnvConfig(
-                        env_type=EnvType.FUNCTION_BASED,
-                        server_file=None,
-                        server_port=8000
-                    )
         
-        # Check other known server file names
-        for server_file in ["server.py", "app.py", "main.py"]:
-            file_path = env_dir / server_file
-            if file_path.exists():
-                if EnvDetector._is_http_server(file_path):
-                    logger.info(f"Detected HTTP server in {server_file}")
-                    return EnvConfig(
-                        env_type=EnvType.HTTP_BASED,
-                        server_file=server_file,
-                        server_port=8000
-                    )
+        # If no HTTP server found, check for function-based patterns
+        env_py = env_dir / "env.py"
+        if env_py.exists():
+            has_actor, has_funcs = EnvDetector._parse_env_py(env_py)
+            if has_actor or has_funcs:
+                logger.info("Detected function-based environment (Actor/functions in env.py)")
+                return EnvConfig(
+                    env_type=EnvType.FUNCTION_BASED,
+                    server_file=None,
+                    server_port=8000
+                )
         
         raise ValueError(f"Cannot detect environment type in {env_path}")
     
@@ -110,7 +102,7 @@ class EnvDetector:
             )
             
             has_funcs = any(
-                isinstance(node, ast.FunctionDef) 
+                isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
                 and not node.name.startswith('_')
                 for node in tree.body
             )

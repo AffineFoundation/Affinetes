@@ -3,10 +3,18 @@
 import asyncio
 import json
 import os
+from pathlib import Path
 from typing import Optional, Dict, Any
 
 from ..api import load_env, build_image_from_env, get_environment
 from ..utils.logger import logger
+from .templates import (
+    ACTOR_ENV_PY,
+    BASIC_ENV_PY,
+    FUNCTION_DOCKERFILE,
+    FASTAPI_ENV_PY,
+    FASTAPI_DOCKERFILE
+)
 
 
 async def run_environment(
@@ -119,3 +127,122 @@ async def call_method(
     except Exception as e:
         logger.error(f"Failed to call method: {e}")
         raise
+
+
+async def build_and_push(
+    env_dir: str,
+    tag: str,
+    push: bool,
+    registry: Optional[str],
+    no_cache: bool,
+    quiet: bool,
+    build_args: Optional[Dict[str, str]] = None
+) -> None:
+    """Build environment image and optionally push to registry"""
+    
+    try:
+        env_path = Path(env_dir).resolve()
+        
+        # Validate environment directory
+        if not env_path.exists():
+            logger.error(f"Environment directory not found: {env_dir}")
+            return
+        
+        if not (env_path / "env.py").exists():
+            logger.error(f"Missing env.py in {env_dir}")
+            return
+        
+        if not (env_path / "Dockerfile").exists():
+            logger.error(f"Missing Dockerfile in {env_dir}")
+            return
+        
+        logger.info(f"Building image '{tag}' from '{env_dir}'")
+        
+        # Build image
+        final_tag = build_image_from_env(
+            env_path=str(env_path),
+            image_tag=tag,
+            nocache=no_cache,
+            quiet=quiet,
+            buildargs=build_args,
+            push=push,
+            registry=registry
+        )
+        
+        if push:
+            logger.info(f"✓ Image built and pushed successfully: {final_tag}")
+            logger.info(f"\nTo use this image:")
+            logger.info(f"  afs run {final_tag}")
+        else:
+            logger.info(f"✓ Image built successfully: {final_tag}")
+            logger.info(f"\nTo push to registry:")
+            logger.info(f"  afs build {env_dir} --tag {tag} --push --registry <registry-url>")
+            logger.info(f"\nTo run locally:")
+            logger.info(f"  afs run {tag}")
+    
+    except Exception as e:
+        logger.error(f"Failed to build image: {e}")
+        raise
+
+
+def init_environment(
+    name: str,
+    env_type: str,
+    template: str
+) -> None:
+    """Initialize a new environment directory with template files"""
+    
+    try:
+        env_path = Path(name)
+        
+        # Check if directory already exists
+        if env_path.exists():
+            logger.error(f"Directory '{name}' already exists")
+            return
+        
+        # Create directory
+        env_path.mkdir(parents=True)
+        logger.info(f"Created directory: {name}/")
+        
+        # Generate files based on template
+        if template == 'basic' or (template == 'actor' and env_type == 'function'):
+            _create_function_based_env(env_path, use_actor=(template == 'actor'))
+        elif template == 'fastapi' or env_type == 'http':
+            _create_http_based_env(env_path)
+        else:
+            _create_function_based_env(env_path, use_actor=False)
+        
+        logger.info(f"✓ Environment '{name}' initialized successfully")
+        logger.info(f"\nNext steps:")
+        logger.info(f"  1. Edit {name}/env.py with your logic")
+        logger.info(f"  2. Build image: afs build {name} --tag {name}:latest")
+        logger.info(f"  3. Run environment: afs run {name}:latest --env API_KEY=xxx")
+    
+    except Exception as e:
+        logger.error(f"Failed to initialize environment: {e}")
+        raise
+
+
+def _create_function_based_env(env_path: Path, use_actor: bool = False) -> None:
+    """Create function-based environment files"""
+    
+    # env.py
+    env_py_content = ACTOR_ENV_PY if use_actor else BASIC_ENV_PY
+    (env_path / "env.py").write_text(env_py_content)
+    logger.info(f"  Created: env.py (function-based)")
+    
+    # Dockerfile
+    (env_path / "Dockerfile").write_text(FUNCTION_DOCKERFILE)
+    logger.info(f"  Created: Dockerfile")
+
+
+def _create_http_based_env(env_path: Path) -> None:
+    """Create HTTP-based environment files with FastAPI"""
+    
+    # env.py
+    (env_path / "env.py").write_text(FASTAPI_ENV_PY)
+    logger.info(f"  Created: env.py (HTTP-based)")
+    
+    # Dockerfile
+    (env_path / "Dockerfile").write_text(FASTAPI_DOCKERFILE)
+    logger.info(f"  Created: Dockerfile")
