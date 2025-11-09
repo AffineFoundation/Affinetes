@@ -68,7 +68,15 @@ class Actor:
 
         response = await client.chat.completions.create(**params)
         
-        return response.choices[0].message.content.strip()
+        # Handle case where API returns None content
+        if not response.choices:
+            raise ValueError("LLM API returned empty choices list")
+        
+        content = response.choices[0].message.content
+        if content is None:
+            raise ValueError("LLM API returned None content (possible content filtering or API error)")
+        
+        return content.strip()
     
     async def evaluate(
         self,
