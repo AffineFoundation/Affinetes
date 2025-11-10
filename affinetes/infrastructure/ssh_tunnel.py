@@ -3,6 +3,7 @@
 import socket
 import threading
 import select
+import logging
 from typing import Optional, Tuple
 from contextlib import closing
 
@@ -10,6 +11,10 @@ import paramiko
 
 from ..utils.logger import logger
 from ..utils.exceptions import BackendError
+
+# Suppress Paramiko transport error logs (connection retries during SSH tunnel setup)
+# These errors are harmless - Paramiko retries automatically and eventually succeeds
+logging.getLogger("paramiko.transport").setLevel(logging.CRITICAL)
 
 
 def find_free_port() -> int:

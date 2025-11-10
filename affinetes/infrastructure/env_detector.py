@@ -46,17 +46,30 @@ class EnvDetector:
         """
         Detect environment type by scanning all Python files
         
+        Detection priority (http_based has higher priority):
+        1. Check env.py for HTTP server (http_based)
+        2. Check other .py files for HTTP server (http_based)
+        3. Check env.py for Actor class (function_based)
+        4. Check env.py for callable functions (function_based)
+        
         Returns:
             EnvConfig with environment configuration
         """
         env_dir = Path(env_path).resolve()
+        env_py = env_dir / "env.py"
         
-        # Scan all Python files in the directory
-        py_files = list(env_dir.glob("*.py"))
+        # Priority 1: Check env.py for HTTP server first
+        if env_py.exists() and EnvDetector._is_http_server(env_py):
+            logger.info("Detected HTTP server in env.py")
+            return EnvConfig(
+                env_type=EnvType.HTTP_BASED,
+                server_file="env.py",
+                server_port=8000
+            )
         
-        # Check each Python file for HTTP server or function-based patterns
+        # Priority 2: Check other Python files for HTTP server
+        py_files = [f for f in env_dir.glob("*.py") if f.name != "env.py"]
         for py_file in py_files:
-            # Check if it's an HTTP server (by content, not filename)
             if EnvDetector._is_http_server(py_file):
                 logger.info(f"Detected HTTP server in {py_file.name}")
                 return EnvConfig(
@@ -65,8 +78,7 @@ class EnvDetector:
                     server_port=8000
                 )
         
-        # If no HTTP server found, check for function-based patterns
-        env_py = env_dir / "env.py"
+        # Priority 3: Check env.py for function-based patterns (Actor class or functions)
         if env_py.exists():
             has_actor, has_funcs = EnvDetector._parse_env_py(env_py)
             if has_actor or has_funcs:
