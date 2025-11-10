@@ -17,6 +17,53 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
 
+# Memory monitoring configuration
+MEMORY_CHECK_INTERVAL = 60  # seconds
+MEMORY_THRESHOLD = 0.90  # 90%
+MEMORY_ENABLED = os.getenv("MEMORY_MONITOR_ENABLED", "true").lower() == "true"
+
+
+async def monitor_memory():
+    """Background task to monitor container memory usage and exit if threshold exceeded."""
+    if not MEMORY_ENABLED:
+        logger.info("Memory monitoring disabled")
+        return
+    
+    logger.info(f"Memory monitoring started (threshold: {MEMORY_THRESHOLD*100}%, interval: {MEMORY_CHECK_INTERVAL}s)")
+    
+    while True:
+        try:
+            await asyncio.sleep(MEMORY_CHECK_INTERVAL)
+            
+            # Read cgroup v2 memory metrics
+            mem_current = int(Path("/sys/fs/cgroup/memory.current").read_text().strip())
+            mem_max_str = Path("/sys/fs/cgroup/memory.max").read_text().strip()
+            
+            if mem_max_str == "max":
+                # No memory limit set, skip check
+                continue
+            
+            mem_max = int(mem_max_str)
+            usage_ratio = mem_current / mem_max
+            
+            logger.debug(f"Memory usage: {usage_ratio*100:.1f}% ({mem_current}/{mem_max} bytes)")
+            
+            if usage_ratio >= MEMORY_THRESHOLD:
+                logger.critical(
+                    f"Memory threshold exceeded: {usage_ratio*100:.1f}% >= {MEMORY_THRESHOLD*100}%. "
+                    f"Forcing process exit to trigger container restart."
+                )
+                os._exit(1)  # Force immediate exit to trigger Docker restart
+                
+        except FileNotFoundError:
+            logger.warning("Memory cgroup files not found, disabling memory monitoring")
+            break
+        except Exception as e:
+            logger.error(f"Error in memory monitoring: {e}")
+            # Continue monitoring despite errors
+            continue
+
+
 ENV_NAME = os.environ.get("ENV_NAME")
 TOOL_NAME = os.environ.get("TOOL_NAME", "")
 
@@ -274,3 +321,6 @@ app = create_app()
 async def startup_event():
     env_name = os.environ.get("ENV_NAME", "unknown")
     logger.info(f"Environment server ready for: {env_name}")
+
+    # Start background memory monitoring
+    asyncio.create_task(monitor_memory())

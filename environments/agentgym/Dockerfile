@@ -38,21 +38,8 @@ ARG TOOL_NAME
 ENV TOOL_NAME=${TOOL_NAME}
 COPY env.py /app/
 
-# Add health check to detect and restart hung containers or OOM conditions
-# Interval: Check every 60s (reduced frequency to avoid overhead)
-# Timeout: Wait max 10s for response
-# Start period: Grace period of 60s after container starts
-# Retries: Mark unhealthy after 2 consecutive failures (120s total)
-# Check 1: HTTP health endpoint must respond
-# Check 2: Memory usage must be < 90% of container limit (for cgroup v2)
 HEALTHCHECK --interval=60s --timeout=10s --start-period=60s --retries=2 \
-    CMD sh -c 'curl -f http://localhost:8000/health || exit 1; \
-        MEM_CURRENT=$(cat /sys/fs/cgroup/memory.current 2>/dev/null || echo 0); \
-        MEM_MAX=$(cat /sys/fs/cgroup/memory.max 2>/dev/null || echo max); \
-        if [ "$MEM_MAX" != "max" ]; then \
-            MEM_USAGE_PCT=$((MEM_CURRENT * 100 / MEM_MAX)); \
-            [ $MEM_USAGE_PCT -lt 90 ] || exit 1; \
-        fi'
+    CMD curl -f http://localhost:8000/health || exit 1
 
 WORKDIR /sandbox
 # IMPORTANT: Must use single worker mode (no --workers or --workers 1)
