@@ -159,10 +159,11 @@ def load_env(
             if replicas != 1:
                 raise ValidationError("connect_only mode only supports single instance (replicas=1)")
         else:
-            if not image:
-                raise ValidationError("image is required when connect_only=False")
+            # URL mode doesn't require image parameter
+            if mode != "url" and not image:
+                raise ValidationError("image is required for docker and basilica modes")
         
-        logger.debug(f"Loading '{image or container_name}' in {mode} mode (replicas={replicas}, connect_only={connect_only})")
+        logger.debug(f"Loading '{image or container_name or 'url-service'}' in {mode} mode (replicas={replicas}, connect_only={connect_only})")
         
         if replicas < 1:
             raise ValidationError("replicas must be >= 1")

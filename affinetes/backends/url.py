@@ -2,9 +2,11 @@
 
 import httpx
 import time
+import asyncio
 from typing import Optional, Any
 
 from .base import AbstractBackend
+from ..infrastructure import HTTPExecutor, EnvType
 from ..utils.exceptions import BackendError
 from ..utils.logger import logger
 
@@ -18,10 +20,11 @@ class URLBackend(AbstractBackend):
     containers, URLBackend connects to already-running services that users
     have deployed themselves.
     
-    The user-deployed service should implement the following endpoints:
-    - GET /health - Health check endpoint
-    - GET /methods - List available methods
-    - POST /call - Call method with JSON body: {"method": "...", "args": [...], "kwargs": {...}}
+    Supports two environment types:
+    1. function_based: Uses /methods and /call endpoints
+    2. http_based: Uses direct endpoints like /evaluate, /create, etc.
+    
+    The backend automatically detects the environment type by checking available endpoints.
     
     Usage:
         >>> env = load_env(
@@ -36,6 +39,7 @@ class URLBackend(AbstractBackend):
         base_url: str,
         timeout: int = 600,
         verify_ssl: bool = True,
+        env_type_override: Optional[str] = None,
         **kwargs
     ):
         """
@@ -45,22 +49,15 @@ class URLBackend(AbstractBackend):
             base_url: Environment service base URL (e.g., "http://your-service.com:8080")
             timeout: Request timeout in seconds (default: 600)
             verify_ssl: Verify SSL certificates for HTTPS connections (default: True)
+            env_type_override: Force environment type (EnvType.FUNCTION_BASED or EnvType.HTTP_BASED)
             **kwargs: Additional configuration
         """
         self.base_url = base_url.rstrip('/')
         self.timeout = timeout
         self.verify_ssl = verify_ssl
         self.config = kwargs
-        
-        # Create HTTP client
-        self.client = httpx.AsyncClient(
-            timeout=timeout,
-            verify=verify_ssl,
-            limits=httpx.Limits(
-                max_connections=100,
-                max_keepalive_connections=20
-            )
-        )
+        self._env_type = env_type_override
+        self._http_executor = None
         
         # Generate unique name for this backend
         # Extract hostname from URL for a meaningful name
@@ -74,10 +71,85 @@ class URLBackend(AbstractBackend):
             self.name = f"url-{int(time.time())}"
         
         logger.info(f"URLBackend initialized: {self.base_url}")
+        
+        # Detect environment type and setup executor
+        self._setup_executor()
+    
+    def _setup_executor(self):
+        """Setup HTTP executor with environment type detection"""
+        try:
+            # Get event loop
+            try:
+                loop = asyncio.get_event_loop()
+            except RuntimeError:
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+            
+            # Detect environment type if not overridden
+            if not self._env_type:
+                self._env_type = loop.run_until_complete(self._detect_env_type())
+                logger.info(f"Detected environment type: {self._env_type}")
+            else:
+                logger.info(f"Using override environment type: {self._env_type}")
+            
+            # Parse URL to get host and port
+            from urllib.parse import urlparse
+            parsed = urlparse(self.base_url)
+            host = parsed.hostname or "localhost"
+            port = parsed.port or (443 if parsed.scheme == "https" else 80)
+            
+            # Create HTTP executor
+            self._http_executor = HTTPExecutor(
+                container_ip=host,
+                container_port=port,
+                env_type=self._env_type,
+                timeout=self.timeout
+            )
+            
+            # Override base_url to use our full URL (including scheme)
+            self._http_executor.base_url = self.base_url
+            
+        except Exception as e:
+            raise BackendError(f"Failed to setup URL backend: {e}")
+    
+    async def _detect_env_type(self) -> str:
+        """Detect environment type by checking available endpoints
+        
+        Returns:
+            EnvType.FUNCTION_BASED or EnvType.HTTP_BASED
+        """
+        # Create temporary client for detection
+        async with httpx.AsyncClient(
+            timeout=10,
+            verify=self.verify_ssl
+        ) as client:
+            try:
+                # Check for function_based endpoint
+                response = await client.get(f"{self.base_url}/methods")
+                if response.status_code == 200:
+                    logger.debug("Found /methods endpoint - function_based environment")
+                    return EnvType.FUNCTION_BASED
+            except Exception:
+                pass
+            
+            try:
+                # Check for http_based endpoint (OpenAPI schema)
+                response = await client.get(f"{self.base_url}/openapi.json")
+                if response.status_code == 200:
+                    logger.debug("Found /openapi.json endpoint - http_based environment")
+                    return EnvType.HTTP_BASED
+            except Exception:
+                pass
+            
+            # Default to function_based if cannot detect
+            logger.warning("Could not detect environment type, defaulting to function_based")
+            return EnvType.FUNCTION_BASED
     
     async def call_method(self, method_name: str, *args, **kwargs) -> Any:
         """
         Call method on remote environment service
+        
+        Uses HTTPExecutor which handles both environment types automatically.
         
         Args:
             method_name: Method name to call
@@ -88,66 +160,27 @@ class URLBackend(AbstractBackend):
             Method result
         """
         try:
-            logger.debug(f"Calling URL backend method: {method_name}")
-            
-            # Use standard /call endpoint with method dispatch
-            response = await self.client.post(
-                f"{self.base_url}/call",
-                json={
-                    "method": method_name,
-                    "args": list(args),
-                    "kwargs": kwargs
-                }
-            )
-            
-            response.raise_for_status()
-            data = response.json()
-            
-            # Parse response (compatible with function_based format)
-            if isinstance(data, dict):
-                if "status" in data:
-                    # MethodResponse format
-                    if data["status"] != "success":
-                        raise BackendError(f"Remote execution failed: {data}")
-                    return data.get("result")
-                else:
-                    # Direct result
-                    return data
-            else:
-                return data
-            
-        except httpx.HTTPStatusError as e:
-            raise BackendError(
-                f"URL backend HTTP {e.response.status_code}: {e.response.text}"
+            return await self._http_executor.call_method(
+                method_name,
+                *args,
+                **kwargs
             )
         except Exception as e:
-            raise BackendError(f"Failed to call method '{method_name}': {e}")
+            raise BackendError(f"Method call failed: {e}")
     
     async def list_methods(self) -> list:
         """
         List available methods from remote environment
         
+        Uses HTTPExecutor which handles both environment types automatically.
+        
         Returns:
             List of method information
         """
         try:
-            # Standard /methods endpoint
-            response = await self.client.get(f"{self.base_url}/methods")
-            response.raise_for_status()
-            
-            data = response.json()
-            
-            # Support both list format and dict format
-            if isinstance(data, list):
-                return data
-            elif isinstance(data, dict):
-                return data.get("methods", [])
-            else:
-                return []
-            
+            return await self._http_executor.list_methods()
         except Exception as e:
-            logger.warning(f"Failed to list methods: {e}")
-            return []
+            raise BackendError(f"Failed to list methods: {e}")
     
     async def health_check(self) -> bool:
         """
@@ -157,11 +190,7 @@ class URLBackend(AbstractBackend):
             True if healthy
         """
         try:
-            response = await self.client.get(
-                f"{self.base_url}/health",
-                timeout=5
-            )
-            return response.status_code == 200
+            return await self._http_executor.health_check()
         except Exception as e:
             logger.debug(f"Health check failed: {e}")
             return False
@@ -169,13 +198,14 @@ class URLBackend(AbstractBackend):
     async def cleanup(self) -> None:
         """Close HTTP client (no service cleanup needed)"""
         logger.info(f"Closing URL backend: {self.name}")
-        await self.client.aclose()
+        if self._http_executor:
+            await self._http_executor.close()
     
     def is_ready(self) -> bool:
         """
-        Check if backend is ready (URL environments are always ready)
+        Check if backend is ready
         
         Returns:
-            True
+            True if executor is initialized
         """
-        return True
+        return self._http_executor is not None
