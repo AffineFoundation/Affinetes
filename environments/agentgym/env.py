@@ -271,6 +271,9 @@ def inject_evaluator_endpoint(app: FastAPI):
                 error=error
             )
             
+        except HTTPException:
+            # Re-raise HTTPException to preserve status codes (e.g., 401)
+            raise
         except ImportError as e:
             logger.error(f"Import error: {e}")
             raise HTTPException(status_code=500, detail=f"Failed to import required modules: {e}")
