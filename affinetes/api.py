@@ -5,7 +5,7 @@ import asyncio
 from typing import Optional, Dict, Any, List
 from pathlib import Path
 
-from .backends import LocalBackend, BasilicaBackend
+from .backends import LocalBackend, BasilicaBackend, URLBackend
 from .infrastructure import ImageBuilder
 from .core import EnvironmentWrapper, get_registry, InstancePool, InstanceInfo
 from .utils.logger import logger
@@ -254,9 +254,19 @@ def _load_single_instance(
             image=image,
             **backend_kwargs
         )
+    elif mode == "url":
+        # URL mode for user-deployed environments
+        if "base_url" not in backend_kwargs:
+            raise ValidationError(
+                "URL mode requires 'base_url' parameter. "
+                "Example: base_url='http://your-service.com:8080'"
+            )
+        backend = URLBackend(
+            **backend_kwargs
+        )
     else:
         raise ValidationError(
-            f"Invalid mode: {mode}. Must be 'docker' or 'basilica'."
+            f"Invalid mode: {mode}. Must be 'docker', 'basilica', or 'url'."
         )
     
     # Create wrapper

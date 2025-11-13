@@ -42,6 +42,34 @@ async def main():
 asyncio.run(main())
 ```
 
+### 1.5. Connect to User-Deployed Service (URL Mode)
+
+```python
+import affinetes as af_env
+import asyncio
+
+async def main():
+    # Connect to user-deployed environment service
+    env = af_env.load_env(
+        mode="url",
+        base_url="http://your-service.com:8080"
+    )
+    
+    # Execute methods
+    result = await env.evaluate(
+        model="deepseek-ai/DeepSeek-V3",
+        base_url="https://llm.chutes.ai/v1",
+        task_id=10
+    )
+    
+    print(f"Score: {result['score']}")
+    
+    # Cleanup
+    await env.cleanup()
+
+asyncio.run(main())
+```
+
 ### 2. Async Context Manager (Recommended)
 
 ```python
@@ -461,6 +489,84 @@ af_env.get_environment(env_id)         # Get environment by ID
 **No Port Exposure**: Containers are accessed via Docker's internal network (e.g., `172.17.0.2:8000`) instead of exposing ports to the host machine. This prevents unauthorized external access.
 
 **SSH Remote Access**: Remote Docker daemons are accessed via SSH protocol (`ssh://user@host`) using public key authentication, providing secure encrypted communication.
+
+## Execution Modes
+
+Affinetes supports multiple execution modes for different deployment scenarios:
+
+### 1. Docker Mode (Default)
+
+Manages Docker containers locally or remotely via SSH.
+
+```python
+# Local deployment
+env = af_env.load_env(
+    image="my-env:latest",
+    mode="docker"  # default mode
+)
+
+# Remote deployment via SSH
+env = af_env.load_env(
+    image="my-env:latest",
+    mode="docker",
+    hosts=["ssh://user@remote-host"]
+)
+```
+
+### 2. URL Mode (User-Deployed Services)
+
+Connect to environment services that users have deployed themselves. The service must implement the standard affinetes HTTP API:
+
+**Required Endpoints:**
+- `GET /health` - Health check
+- `GET /methods` - List available methods
+- `POST /call` - Call method with JSON body: `{"method": "...", "args": [...], "kwargs": {...}}`
+
+**Usage:**
+```python
+env = af_env.load_env(
+    mode="url",
+    base_url="http://your-service.com:8080"
+)
+
+result = await env.evaluate(task_id=10)
+```
+
+**Typical Workflow:**
+1. Deploy environment container on your infrastructure:
+   ```bash
+   docker run -d -p 8080:8000 \
+     --name my-env-service \
+     -e CHUTES_API_KEY=xxx \
+     my-env:latest
+   ```
+
+2. Connect via URL mode:
+   ```python
+   env = af_env.load_env(
+       mode="url",
+       base_url="http://your-server.com:8080"
+   )
+   ```
+
+**Benefits:**
+- Full control over deployment infrastructure
+- No SSH access required
+- Works with any hosting provider
+- Can be integrated into existing services
+
+See `examples/url_backend_demo.py` for complete examples.
+
+### 3. Basilica Mode (Reserved)
+
+Reserved for future Basilica service integration. Currently a placeholder.
+
+```python
+env = af_env.load_env(
+    image="affine",
+    mode="basilica",
+)
+```
 
 ## Usage Examples
 
