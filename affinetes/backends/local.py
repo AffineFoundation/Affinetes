@@ -274,7 +274,8 @@ class LocalBackend(AbstractBackend):
             )
             
             # Wait for HTTP server to be ready
-            timeout = 120 if self._env_type == EnvType.HTTP_BASED else 60
+            # Increased timeout to handle concurrent deployments and slow container initialization
+            timeout = 180 if self._env_type == EnvType.HTTP_BASED else 120
             access_info = f"{local_host}:{local_port}"
             logger.debug(f"Waiting for HTTP server at {access_info} (timeout={timeout}s)")
             

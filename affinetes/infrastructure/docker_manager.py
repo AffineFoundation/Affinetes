@@ -25,10 +25,11 @@ class DockerManager:
             if host and host.startswith("ssh://"):
                 # SSH connection to remote Docker daemon
                 # Set SSH options via environment variable to accept unknown hosts
+                # Increased timeout to handle concurrent deployments (180s instead of default 60s)
                 # Keep this environment variable set for the entire lifecycle
-                os.environ["DOCKER_SSH_OPTS"] = "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
-                self.client = docker.DockerClient(base_url=host)
-                logger.info(f"Connected to remote Docker daemon via SSH: {host}")
+                os.environ["DOCKER_SSH_OPTS"] = "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=180 -o ServerAliveInterval=60"
+                self.client = docker.DockerClient(base_url=host, timeout=180)
+                logger.info(f"Connected to remote Docker daemon via SSH: {host} (timeout=180s)")
             else:
                 # Local socket connection
                 self.client = docker.from_env()
