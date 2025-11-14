@@ -134,19 +134,19 @@ class LocalBackend(AbstractBackend):
                 )
                 logger.info(f"Accessing via SSH tunnel: {local_host}:{local_port}")
             else:
-                # Local deployment: check if in DinD scenario
-                is_running_in_docker = self._is_running_in_docker()
-                if is_running_in_docker:
-                    # DinD: use container name as hostname
+                # Local deployment: detect runtime environment
+                runtime_env = self._detect_runtime_environment()
+                if runtime_env == "dood":
+                    # DOOD: Use container name as hostname
                     local_host = self.name
                     local_port = 8000
-                    logger.info(f"Local DinD detected, accessing via container name: {local_host}:{local_port}")
+                    logger.info(f"DOOD mode, accessing via container name: {local_host}:{local_port}")
                 else:
-                    # Normal local: use container IP
+                    # Host or DIND: Use container IP
                     container_ip = self._docker_manager.get_container_ip(self._container)
                     local_host = container_ip
                     local_port = 8000
-                    logger.info(f"Local connection, accessing via IP: {local_host}:{local_port}")
+                    logger.info(f"{runtime_env.upper()} mode, accessing via IP: {local_host}:{local_port}")
             
             # Create HTTP executor
             self._http_executor = HTTPExecutor(
@@ -224,17 +224,23 @@ class LocalBackend(AbstractBackend):
                 **docker_kwargs
             }
             
-            # Network handling: Only needed for local DinD deployment
+            # Network handling: Only needed for local DOOD deployment
             # Remote deployment uses SSH tunnel, so no network configuration needed
             if not self._is_remote:
-                # Local deployment: check if running inside Docker (DinD scenario)
-                is_running_in_docker = self._is_running_in_docker()
-                if is_running_in_docker:
+                # Detect runtime environment
+                runtime_env = self._detect_runtime_environment()
+                
+                if runtime_env == "dood":
+                    # DOOD: Need to join the same network as affinetes container
                     network_name = self._ensure_docker_network()
-                    # Set the network for the new environment container
-                    # This ensures it joins the same network as affinetes container
                     container_config["network"] = network_name
-                    logger.info(f"Local DinD detected, connecting environment container to network: {network_name}")
+                    logger.info(f"DOOD mode detected, connecting environment container to network: {network_name}")
+                elif runtime_env == "dind":
+                    # DIND: Use default bridge network, no special configuration needed
+                    logger.info("DIND mode detected, using default bridge network")
+                else:
+                    # Host: No network configuration needed
+                    logger.info("Host mode detected, using default network")
             
             # Start container
             self._container = self._docker_manager.start_container(**container_config)
@@ -251,19 +257,20 @@ class LocalBackend(AbstractBackend):
                 )
                 logger.info(f"Accessing via SSH tunnel: {local_host}:{local_port}")
             else:
-                # Local deployment: check if in DinD scenario
-                is_running_in_docker = self._is_running_in_docker()
-                if is_running_in_docker:
-                    # DinD scenario: use container name as hostname
+                # Local deployment: detect runtime environment
+                runtime_env = self._detect_runtime_environment()
+                
+                if runtime_env == "dood":
+                    # DOOD: Use container name as hostname
                     local_host = self.name
                     local_port = 8000
-                    logger.info(f"Local DinD deployment, accessing via container name: {local_host}:{local_port}")
+                    logger.info(f"DOOD mode, accessing via container name: {local_host}:{local_port}")
                 else:
-                    # Normal local deployment: use container IP
+                    # Host or DIND: Use container IP
                     container_ip = self._docker_manager.get_container_ip(self._container)
                     local_host = container_ip
                     local_port = 8000
-                    logger.info(f"Local deployment, accessing via IP: {local_host}:{local_port}")
+                    logger.info(f"{runtime_env.upper()} mode, accessing via IP: {local_host}:{local_port}")
             
             # Create HTTP executor with accessible address
             self._http_executor = HTTPExecutor(
@@ -311,10 +318,50 @@ class LocalBackend(AbstractBackend):
             raise BackendError(f"Failed to start container: {e}")
     
     def _is_running_in_docker(self) -> bool:
-        p1 = open("/proc/1/comm").read().strip().lower()
-        if p1 not in ("systemd", "init"):
-            return True
+        """Check if running inside a Docker container"""
+        try:
+            p1 = open("/proc/1/comm").read().strip().lower()
+            if p1 not in ("systemd", "init"):
+                return True
+        except:
+            pass
         return False
+    
+    def _detect_runtime_environment(self) -> str:
+        """
+        Detect runtime environment type
+        
+        Returns:
+            "host" - Running on host machine
+            "dood" - Docker-out-of-Docker (mounted docker.sock from host)
+            "dind" - Docker-in-Docker (independent Docker daemon)
+        """
+        # Check if running in Docker container
+        if not self._is_running_in_docker():
+            logger.debug("Runtime environment: host")
+            return "host"
+        
+        # Running in container - check if dockerd process exists
+        # If dockerd exists → DIND, otherwise → DOOD
+        try:
+            import os
+            for pid in os.listdir('/proc'):
+                if not pid.isdigit():
+                    continue
+                try:
+                    with open(f'/proc/{pid}/comm', 'r') as f:
+                        comm = f.read().strip()
+                        if comm == 'dockerd':
+                            logger.debug("Runtime environment: dind (dockerd process found)")
+                            return "dind"
+                except:
+                    continue
+        except Exception as e:
+            logger.debug(f"Failed to check for dockerd process: {e}")
+        
+        # No dockerd found → DOOD
+        logger.debug("Runtime environment: dood (no dockerd process)")
+        return "dood"
 
     def _ensure_docker_network(self) -> str:
         """Get the network name that affinetes container is connected to
