@@ -77,10 +77,21 @@ class ABDTask:
         self._executor = ProgramExecutor()
         self._dataset = dataset if dataset is not None else R2Dataset(dataset_name=dataset_name)
 
-    async def generate(self) -> Challenge:
-        """Generate a reverse engineering challenge from R2 dataset"""
-        logger.debug("Generating ABD challenge")
-        sample = await self._dataset.get()
+    async def generate(self, task_id: int = None) -> Challenge:
+        """Generate a reverse engineering challenge from R2 dataset
+        
+        Args:
+            task_id: Optional task ID for deterministic sample selection.
+                     If provided, used as index into dataset.
+                     If None, randomly samples from dataset.
+        """
+        logger.debug(f"Generating ABD challenge (task_id={task_id})")
+        
+        # Get sample - either by ID or random
+        if task_id is not None:
+            sample = await self._dataset.get_by_id(task_id)
+        else:
+            sample = await self._dataset.get()
         
         program = sample.get("program")
         example_in = sample.get("inputs", "")
@@ -104,7 +115,7 @@ class ABDTask:
         return Challenge(
             env="affine:abd",
             prompt=prompt,
-            extra={"program": program, "expected_output": output}
+            extra={"program": program, "expected_output": output, "task_id": task_id}
         )
 
     def extract_input_from_response(self, response: str) -> str:

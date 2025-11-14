@@ -11,18 +11,31 @@ class SATTask:
     def __init__(self):
         pass
     
-    async def generate(self, n=15, k=10) -> Challenge:
-        """Generate a satisfiable k-SAT problem"""
+    async def generate(self, n=15, k=10, task_id: int = None) -> Challenge:
+        """Generate a satisfiable k-SAT problem
+        
+        Args:
+            n: Number of variables
+            k: Number of literals per clause
+            task_id: Optional task ID for deterministic generation.
+                     If provided, used as random seed for reproducible generation.
+        """
+        # Use task_id as seed for deterministic generation
+        if task_id is not None:
+            rng = random.Random(task_id)
+        else:
+            rng = random.Random()  # Use default random behavior
+        
         m = int(4.26 * n)
-        sol = {i: random.choice([True, False]) for i in range(1, n + 1)}
+        sol = {i: rng.choice([True, False]) for i in range(1, n + 1)}
         
         cls = []
         for _ in range(m):
-            vs = random.sample(list(sol), k)
-            sv = random.choice(vs)
+            vs = rng.sample(list(sol), k)
+            sv = rng.choice(vs)
             cls.append([
                 (v if sol[v] else -v) if v == sv
-                else (v if random.choice([True, False]) else -v)
+                else (v if rng.choice([True, False]) else -v)
                 for v in vs
             ])
         
@@ -41,7 +54,7 @@ class SATTask:
         return Challenge(
             env="sat",
             prompt=prompt,
-            extra={"solution": sol, "clauses": cls}
+            extra={"solution": sol, "clauses": cls, "task_id": task_id}
         )
     
     async def evaluate(self, response: str, challenge: Challenge) -> float:

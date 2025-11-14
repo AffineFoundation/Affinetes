@@ -44,13 +44,11 @@ class EnvDetector:
     @staticmethod
     def detect(env_path: str) -> EnvConfig:
         """
-        Detect environment type by scanning all Python files
+        Detect environment type by checking env.py only
         
-        Detection priority (http_based has higher priority):
-        1. Check env.py for HTTP server (http_based)
-        2. Check other .py files for HTTP server (http_based)
-        3. Check env.py for Actor class (function_based)
-        4. Check env.py for callable functions (function_based)
+        Simple rule:
+        - If env.py contains FastAPI and 'app', it's http_based
+        - Otherwise, it's function_based
         
         Returns:
             EnvConfig with environment configuration
@@ -58,68 +56,31 @@ class EnvDetector:
         env_dir = Path(env_path).resolve()
         env_py = env_dir / "env.py"
         
-        # Priority 1: Check env.py for HTTP server first
-        if env_py.exists() and EnvDetector._is_http_server(env_py):
-            logger.info("Detected HTTP server in env.py")
-            return EnvConfig(
-                env_type=EnvType.HTTP_BASED,
-                server_file="env.py",
-                server_port=8000
-            )
+        if not env_py.exists():
+            raise ValueError(f"env.py not found in {env_path}")
         
-        # Priority 2: Check other Python files for HTTP server
-        py_files = [f for f in env_dir.glob("*.py") if f.name != "env.py"]
-        for py_file in py_files:
-            if EnvDetector._is_http_server(py_file):
-                logger.info(f"Detected HTTP server in {py_file.name}")
+        # Check if env.py contains FastAPI HTTP server
+        try:
+            code = env_py.read_text()
+            
+            # Check for FastAPI and app variable
+            has_fastapi = "FastAPI" in code
+            has_app = "app = " in code or "app=" in code
+            
+            if has_fastapi and has_app:
+                logger.info("Detected HTTP server in env.py")
                 return EnvConfig(
                     env_type=EnvType.HTTP_BASED,
-                    server_file=py_file.name,
+                    server_file="env.py",
                     server_port=8000
                 )
-        
-        # Priority 3: Check env.py for function-based patterns (Actor class or functions)
-        if env_py.exists():
-            has_actor, has_funcs = EnvDetector._parse_env_py(env_py)
-            if has_actor or has_funcs:
-                logger.info("Detected function-based environment (Actor/functions in env.py)")
+            else:
+                logger.info("Detected function-based environment")
                 return EnvConfig(
                     env_type=EnvType.FUNCTION_BASED,
                     server_file=None,
                     server_port=8000
                 )
-        
-        raise ValueError(f"Cannot detect environment type in {env_path}")
-    
-    @staticmethod
-    def _is_http_server(file_path: Path) -> bool:
-        """Check if file is an HTTP server"""
-        try:
-            code = file_path.read_text()
-            return any(fw in code for fw in EnvDetector.WEB_FRAMEWORKS)
         except Exception as e:
-            logger.debug(f"Failed to parse {file_path}: {e}")
-            return False
-    
-    @staticmethod
-    def _parse_env_py(file_path: Path) -> tuple[bool, bool]:
-        """Check env.py for Actor class and callable functions"""
-        try:
-            code = file_path.read_text()
-            tree = ast.parse(code)
-            
-            has_actor = any(
-                isinstance(node, ast.ClassDef) and node.name == "Actor"
-                for node in ast.walk(tree)
-            )
-            
-            has_funcs = any(
-                isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
-                and not node.name.startswith('_')
-                for node in tree.body
-            )
-            
-            return has_actor, has_funcs
-        except Exception as e:
-            logger.debug(f"Failed to parse {file_path}: {e}")
-            return False, False
+            logger.error(f"Failed to read env.py: {e}")
+            raise ValueError(f"Cannot detect environment type in {env_path}: {e}")

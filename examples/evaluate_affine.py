@@ -36,7 +36,8 @@ async def main():
         print("\n3. Running evaluation in container (async)...")
         result = await env.evaluate(
             task_type="abd",
-            model="deepseek-ai/DeepSeek-V3",
+            task_id=240,
+            model="deepseek-ai/DeepSeek-V3.1",
             base_url="https://llm.chutes.ai/v1"
         )
         

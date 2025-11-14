@@ -86,7 +86,8 @@ class Actor:
         timeout=600,
         temperature=0.7,
         api_key: str = None,
-        seed: int = None
+        seed: int = None,
+        task_id: int = None
     ):
         """
         Run evaluation on a single task
@@ -99,6 +100,10 @@ class Actor:
             temperature: Temperature for LLM generation
             api_key: Override API key for this evaluation. If not provided, uses instance api_key
             seed: Random seed for LLM generation. Used to ensure reproducible results. If not provided, a random seed will be generated.
+            task_id: Optional task ID for deterministic task selection.
+                     - For SAT: used as seed for deterministic generation
+                     - For ABD/DED: used as index into R2 dataset
+                     If not provided, tasks are randomly generated/sampled.
         """
         # Generate random seed if not provided
         if seed is None:
@@ -119,8 +124,7 @@ class Actor:
         
         start = time.time()
         
-        # Generate challenge (unified async interface)
-        challenge = await task_instance.generate()
+        challenge = await task_instance.generate(task_id=task_id)
         
         # Call LLM
         try:

@@ -90,6 +90,10 @@ class R2Dataset:
         self._files: List[Dict[str, Any]] = []
         self.total_size: int = 0
         
+        # Cache for file sample counts (used by get_by_id)
+        self._file_sample_counts: Optional[List[int]] = None
+        self._cumulative_counts: Optional[List[int]] = None
+        
         # Start background initialization
         self._init_task = asyncio.create_task(self._async_init())
         logger.info(f"Started background initialization for dataset '{self.dataset_name}'")
@@ -340,3 +344,230 @@ class R2Dataset:
     async def __anext__(self) -> Any:
         """Get next random sample"""
         return await self.get()
+    
+    async def _build_file_index(self) -> None:
+        """Build index mapping for task_id to file/sample locations"""
+        if self._file_sample_counts is not None:
+            return  # Already built
+        
+        # Wait for index to be loaded
+        if self._index is None:
+            await self._load_index()
+        
+        # Get sorted list of files (for deterministic ordering)
+        file_keys = sorted([
+            file_info.get("key") or (self._dataset_folder + file_info.get("filename", ""))
+            for file_info in self._files
+        ])
+        
+        # Load sample counts for each file
+        sample_counts = []
+        for key in file_keys:
+            cache_path = self._get_cache_path(key)
+            
+            # Check if file is cached
+            if cache_path.exists():
+                samples = await self._read_from_cache(cache_path)
+                count = len(samples) if samples else 0
+            else:
+                # File not yet downloaded - get count from index metadata if available
+                file_info = next(
+                    (f for f in self._files if (f.get("key") or (self._dataset_folder + f.get("filename", ""))) == key),
+                    None
+                )
+                count = file_info.get("row_count", 0) if file_info else 0
+            
+            sample_counts.append(count)
+        
+        # Build cumulative counts for fast lookup
+        cumulative = []
+        total = 0
+        for count in sample_counts:
+            cumulative.append(total)
+            total += count
+        
+        self._file_sample_counts = sample_counts
+        self._cumulative_counts = cumulative
+        
+        logger.debug(f"Built file index: {len(file_keys)} files, {total} total samples")
+    
+    async def _ensure_file_downloaded(self, file_info: Dict[str, Any], timeout: int = 120) -> bool:
+        """
+        Ensure a specific file is downloaded and cached.
+        
+        Args:
+            file_info: File metadata from index
+            timeout: Maximum wait time in seconds
+            
+        Returns:
+            True if file is available, False otherwise
+        """
+        key = file_info.get("key") or (self._dataset_folder + file_info.get("filename", ""))
+        cache_path = self._get_cache_path(key)
+        
+        # Check if already cached
+        if cache_path.exists():
+            return True
+        
+        logger.info(f"File {key} not cached, triggering download...")
+        
+        # Trigger download
+        start_time = asyncio.get_event_loop().time()
+        success = await self._download_and_cache_file(file_info)
+        
+        if success:
+            return True
+        
+        # If download failed, wait for background download with timeout
+        while asyncio.get_event_loop().time() - start_time < timeout:
+            if cache_path.exists():
+                logger.info(f"File {key} downloaded successfully")
+                return True
+            await asyncio.sleep(1)
+        
+        logger.error(f"Timeout waiting for file {key} download")
+        return False
+    
+    async def get_by_id(self, task_id: int, download_timeout: int = 120) -> Any:
+        """
+        Get a specific sample by task ID (deterministic).
+        
+        Args:
+            task_id: Task identifier (0-based global index across entire dataset)
+            download_timeout: Maximum seconds to wait for file download if not cached
+            
+        Returns:
+            Sample at the specified index
+            
+        Raises:
+            ValueError: If task_id is out of range or invalid
+            RuntimeError: If required file cannot be downloaded
+        """
+        # Wait for index to be loaded
+        if self._index is None:
+            logger.debug("Waiting for dataset index to load...")
+            await self._load_index()
+        
+        # Validate task_id range
+        if task_id < 0:
+            raise ValueError(f"task_id must be non-negative, got {task_id}")
+        
+        if self.total_size > 0 and task_id >= self.total_size:
+            raise ValueError(
+                f"task_id {task_id} out of range [0, {self.total_size-1}]. "
+                f"Dataset '{self.dataset_name}' contains {self.total_size} samples."
+            )
+        
+        # Build file index if not already done
+        await self._build_file_index()
+        
+        # Get sorted file list (must match _build_file_index ordering)
+        file_keys = sorted([
+            file_info.get("key") or (self._dataset_folder + file_info.get("filename", ""))
+            for file_info in self._files
+        ])
+        
+        # Find target file using cumulative counts
+        file_idx = None
+        local_idx = task_id
+        
+        for i, cumulative in enumerate(self._cumulative_counts):
+            if i == len(self._cumulative_counts) - 1:
+                # Last file
+                file_idx = i
+                local_idx = task_id - cumulative
+                break
+            elif task_id < self._cumulative_counts[i + 1]:
+                # Found target file
+                file_idx = i
+                local_idx = task_id - cumulative
+                break
+        
+        if file_idx is None:
+            raise RuntimeError(f"Failed to locate task_id {task_id} in file index")
+        
+        # Validate local index
+        if local_idx >= self._file_sample_counts[file_idx]:
+            raise ValueError(
+                f"task_id {task_id} maps to invalid local index {local_idx} "
+                f"in file {file_idx} (size: {self._file_sample_counts[file_idx]})"
+            )
+        
+        # Get file info and ensure it's downloaded
+        target_key = file_keys[file_idx]
+        file_info = next(
+            (f for f in self._files if (f.get("key") or (self._dataset_folder + f.get("filename", ""))) == target_key),
+            None
+        )
+        
+        if not file_info:
+            raise RuntimeError(f"File metadata not found for key: {target_key}")
+        
+        # Ensure file is downloaded
+        cache_path = self._get_cache_path(target_key)
+        if not cache_path.exists():
+            logger.info(f"task_id {task_id} requires file {target_key} (not yet cached)")
+            download_success = await self._ensure_file_downloaded(file_info, timeout=download_timeout)
+            
+            if not download_success:
+                raise RuntimeError(
+                    f"Failed to download required file for task_id {task_id}: {target_key}. "
+                    f"File may be unavailable or download timed out after {download_timeout}s."
+                )
+        
+        # Load file and return specific sample
+        samples = await self._read_from_cache(cache_path)
+        
+        if not samples:
+            raise RuntimeError(f"Failed to read cached file: {cache_path}")
+        
+        # Update file index if actual sample count differs (file was just downloaded)
+        actual_count = len(samples)
+        if actual_count != self._file_sample_counts[file_idx]:
+            logger.warning(
+                f"File {file_idx} sample count mismatch: "
+                f"index={self._file_sample_counts[file_idx]}, actual={actual_count}. "
+                f"Rebuilding file index..."
+            )
+            # Invalidate index to force rebuild
+            self._file_sample_counts = None
+            self._cumulative_counts = None
+            await self._build_file_index()
+            
+            # Recalculate file_idx and local_idx with updated index
+            file_idx = None
+            local_idx = task_id
+            
+            for i, cumulative in enumerate(self._cumulative_counts):
+                if i == len(self._cumulative_counts) - 1:
+                    file_idx = i
+                    local_idx = task_id - cumulative
+                    break
+                elif task_id < self._cumulative_counts[i + 1]:
+                    file_idx = i
+                    local_idx = task_id - cumulative
+                    break
+            
+            if file_idx is None:
+                raise RuntimeError(f"Failed to locate task_id {task_id} after index rebuild")
+            
+            # Re-validate with updated index
+            target_key = file_keys[file_idx]
+            cache_path = self._get_cache_path(target_key)
+            samples = await self._read_from_cache(cache_path)
+            
+            if not samples:
+                raise RuntimeError(f"Failed to read cached file after rebuild: {cache_path}")
+        
+        if local_idx >= len(samples):
+            raise RuntimeError(
+                f"Sample index {local_idx} out of range for file {target_key} "
+                f"(expected {self._file_sample_counts[file_idx]} samples, found {len(samples)})"
+            )
+        
+        logger.debug(
+            f"Retrieved task_id {task_id} from file {file_idx} "
+            f"(local_idx={local_idx}, file={cache_path.name})"
+        )
+        
+        return samples[local_idx]
